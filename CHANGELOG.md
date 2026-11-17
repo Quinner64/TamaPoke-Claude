@@ -6,6 +6,20 @@ bottom of the clock/settings screen (swipe down) and `web/manifest.json`.
 Updating from the [web installer](https://socquique.github.io/TamaPoke/web/)
 **without** ticking "Erase device" keeps your Pokémon.
 
+## [Unreleased]
+
+### Added
+
+- **Claude dashboard.** Plugged into a computer over USB, the board shows your
+  Claude Code usage: context window used and left, session time, the 5-hour and
+  weekly plan limits with their reset countdowns, session cost, lines changed,
+  and whether Claude is working, done or needs you. NEEDS YOU and errors chime,
+  and so does a turn that ran 30 s or more when it finishes. It opens by itself
+  when the PC bridge connects (`tools/claude_monitor.py`; no API key needed).
+  Swipe up for the pet. Setup in [CLAUDE_MONITOR.md](CLAUDE_MONITOR.md). Screen
+  previews are rendered from the firmware code itself by
+  `tools/claude_preview/build.sh`.
+
 ## [1.21] - 2026-11-16
 
 ### Changed

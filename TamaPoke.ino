@@ -49,6 +49,8 @@
 #include "bootbutton.h"
 #include "screenlock.h"
 #include "trainingcapture.h"
+#include "claudemon.h"
+#include "claudeui.h"
 #include <Preferences.h>
 
 // Version del firmware. Subir este numero en cada release (y manifest.json para
@@ -212,6 +214,22 @@ uint16_t sackHits = 0;
 float sackShake = 0;
 uint8_t sackGain = 0;
 bool sackNewHi = false;
+
+// Claude dashboard (claudemon.h / claudeui.h): Claude Code usage sent by
+// tools/claude_monitor.py over USB. Opens by itself when the PC bridge connects,
+// swipe left/right between its pages, swipe up/down for the pet.
+ClaudeMon claude;
+bool claudeOpen = false;
+uint8_t claudePage = 0;
+uint32_t claudeLastKey = 0;
+bool claudeKeyValid = false;  // false = redraw on the next frame
+#define CLAUDE_RETURN_MS 60000UL  // a minute untouched on the pet screen: back to the dashboard
+#define CLAUDE_CLOSE_S 120        // PC silent this long: the dashboard closes, the pet comes back
+bool claudeCanOpen();
+void openClaude(uint8_t page);
+void claudeSerial(const String &line);
+void claudeTick(uint32_t now);
+bool renderClaude();
 
 // las 9 especies con sprite propio en flash (respaldo sin SD): dex -> indice
 int flashIdxForDex(int16_t dex) {
@@ -633,6 +651,7 @@ void loop() {
   pollPwrButton();  // original board: same PEK short press as before
 #endif
 
+  claudeTick(now);
   updateBrightness(now);
 
   // bateria al limite seguro (sin USB): se guarda la partida y se apaga el PMU antes de que la
@@ -824,6 +843,10 @@ void handleSerial() {
     return;
   }
 #endif
+  if (line.startsWith("CLAUDE")) {  // tools/claude_monitor.py
+    claudeSerial(line);
+    return;
+  }
   if (sdSerialCommand(line)) return;
 
   if (line == "HATCH") {
@@ -1105,7 +1128,8 @@ void handleTouch() {
     tXl = x;
     tYl = y;
     // pulsacion larga sin moverse sobre el bicho -> dialogo de soltar
-    if (!holdFired && !swallowGesture && !galleryOpen && !cardOpen && !kbOpen && !clockOpen && millis() - tStart > 3000 &&
+    if (!holdFired && !swallowGesture && !galleryOpen && !cardOpen && !kbOpen && !clockOpen && !claudeOpen &&
+        millis() - tStart > 3000 &&
         abs(tXl - tX0) < 30 && abs(tYl - tY0) < 30 && inPetZone(tX0, tY0) &&
         !pet.isEgg() && !confirmUntil && !pet.ceremony) {
       confirmUntil = millis() + 10000;
@@ -1129,6 +1153,10 @@ void openClock();  // prototipo
 
 void onSwipeV(int dir) {
   if (pet.awaitingStarter()) return;  // bloqueado durante la eleccion de inicial
+  if (claudeOpen) {                   // dashboard: up or down goes to the pet
+    claudeOpen = false;
+    return;
+  }
   if (gameOpen || galleryOpen || kbOpen || sackOpen || pet.ceremony) return;
   if (clockOpen) { clockOpen = false; return; }
   if (cardOpen) {
@@ -1146,10 +1174,24 @@ void onSwipeV(int dir) {
 // deslizar: dir +1 = hacia la derecha
 void onSwipe(int dir) {
   if (pet.awaitingStarter()) return;  // bloqueado durante la eleccion de inicial
+  if (claudeOpen) {  // dashboard: left = next page; past the last page is the pet
+    if (dir < 0) {
+      if (claudePage + 1 >= CLAUDE_PAGES) claudeOpen = false;
+      else claudePage++;
+    } else if (claudePage > 0) {
+      claudePage--;
+    }
+    return;
+  }
   if (gameOpen || kbOpen || clockOpen) return;
   if (cardOpen) {  // dentro de la ficha: cambiar entre las 4 paginas
     int p = (int)cardPage + (dir > 0 ? -1 : 1);  // izquierda avanza
     cardPage = p < 0 ? 0 : (p > 3 ? 3 : p);
+    return;
+  }
+  // with the PC bridge connected the dashboard sits to the left of the pet
+  if (!galleryOpen && dir > 0 && claude.alive(millis()) && claudeCanOpen()) {
+    openClaude(CLAUDE_PAGES - 1);
     return;
   }
   if (!galleryOpen) {
@@ -1191,6 +1233,11 @@ void onTap(int16_t x, int16_t y) {
         break;
       }
     }
+    return;
+  }
+  if (claudeOpen) {  // tap = next page (the waiting screen goes back to the pet)
+    if (claude.alive(millis())) claudePage = (claudePage + 1) % CLAUDE_PAGES;
+    else claudeOpen = false;
     return;
   }
   if (galleryOpen) {
@@ -1606,6 +1653,7 @@ bool render() {
 #if BOARD_AMOLED_175C
   if (controlToastVisible || screenIsLocked()) {
     screenKeyValid = false;
+    claudeKeyValid = false;
     galleryDirty = true;
     // Also invalidate on the first frame after expiry to erase the overlay.
     if ((int32_t)(controlToastUntil - millis()) <= 0) controlToastVisible = false;
@@ -1623,6 +1671,8 @@ bool render() {
     renderStarterSelect();
     return true;
   }
+  if (claudeOpen) return renderClaude();
+  claudeKeyValid = false;  // anything else drawn: the dashboard repaints in full when it comes back
   if (galleryOpen) {
     renderGallery();
     return true;
@@ -1760,6 +1810,92 @@ bool render() {
     else drawChoiceDialog();
   }
 
+  flushUI();
+  return true;
+}
+
+// ---------- Claude dashboard (Claude Code usage from the PC) ----------
+
+// The dashboard only takes over the plain pet screen: never a game, a menu, a
+// dialog, the egg/starter flow or a ceremony the player is in the middle of.
+bool claudeCanOpen() {
+  return !pet.awaitingStarter() && !galleryOpen && !gameOpen && !sackOpen && !kbOpen && !clockOpen &&
+         !cardOpen && !pet.ceremony && !confirmUntil && !choiceKind && !feedMenuUntil && !bathUntil &&
+         !pet.evolving();
+}
+
+void openClaude(uint8_t page) {
+  claudeOpen = true;
+  claudePage = page % CLAUDE_PAGES;
+  claudeKeyValid = false;
+}
+
+// one line under the session stats when the pet needs something (ASCII species
+// names: the dashboard fonts have no CJK glyphs)
+static const char *claudePetMsg() {
+  static char buf[40];
+  if (pet.isEgg() || pet.ceremony) return "";
+  const char *what = pet.wantEvolveButton()     ? "is ready to evolve!"
+                     : pet.canRunawayNow()      ? "is about to run away!"
+                     : pet.wantFarewellButton() ? "wants to say goodbye"
+                     : pet.sleeping             ? nullptr
+                     : pet.fullness < 25        ? "is hungry"
+                     : pet.hygiene < 25         ? "needs a bath"
+                     : pet.joy < 25             ? "is bored"
+                     : pet.energy < 25          ? "is tired"
+                                                : nullptr;
+  if (!what) return "";
+  snprintf(buf, sizeof(buf), "%s %s", pet.nick[0] ? pet.nick : DEX_TBL[pet.speciesId].name, what);
+  return buf;
+}
+
+// "CLAUDE?" (the bridge looking for the board) or "CLAUDE k=v ..." (a snapshot)
+void claudeSerial(const String &line) {
+  if (line == "CLAUDE?") {
+    Serial.printf("CLAUDE ok v=%d fw=%s\n", CLAUDE_PROTO, FW_VERSION);
+    return;
+  }
+  if (!line.startsWith("CLAUDE ")) return;
+  uint32_t now = millis();
+  ClaudeEvent ev = claude.feed(line.c_str() + 7, now);
+  // the bridge just connected, or Claude is waiting on you: show the dashboard
+  if (!claudeOpen && (ev.linkUp || ev.alert == CA_NEEDS_YOU || ev.alert == CA_ERROR) && claudeCanOpen())
+    openClaude(0);
+  if (screenOff || screenIsLocked()) return;  // switched off with PWR / pocket lock: stays dark and silent
+  if (ev.alert != CA_NONE) {
+    wakeUI();
+    sfxPlay(ev.alert == CA_DONE ? SFX_LEVEL : ev.alert == CA_NEEDS_YOU ? SFX_MEDAL : SFX_DENY);
+  } else if (ev.activity && claudeOpen) {
+    // Claude at work keeps the dashboard lit, as a visible pet event does; idle, it dims as usual
+    if (dimStageFor(idleSince(now, lastInteract)) != DIM_AWAKE) wakeUI();
+    else lastInteract = now;
+  }
+}
+
+void claudeTick(uint32_t now) {
+  if (claudeOpen) {
+    // PC unplugged or bridge stopped: after a while the board is a TamaPoke again
+    if (!claude.alive(now) && claude.sinceRxS(now) >= CLAUDE_CLOSE_S) claudeOpen = false;
+    return;
+  }
+  if (claude.alive(now) && claudeCanOpen() && idleSince(now, lastInteract) > CLAUDE_RETURN_MS) openClaude(0);
+}
+
+// Draws the dashboard only when something on it changed (see claudeFrameKey):
+// most frames it is identical, and skipping the QSPI flush saves power.
+bool renderClaude() {
+  ClaudeView v;
+  v.page = claudePage;
+  v.petThumb = pet.isEgg() ? nullptr : thumbs.get(pet.speciesId);
+  v.petMsg = claudePetMsg();
+  ClaudeFrame f;
+  claudeBuildFrame(claude, v, millis(), f);
+  uint32_t k = claudeFrameKey(f);
+  if (claudeKeyValid && k == claudeLastKey) return false;
+  claudeLastKey = k;
+  claudeKeyValid = true;
+  claudeDraw(gfx, f, CX, CY, PANEL_ROUND);
+  applyLangFont();  // claudeDraw leaves a U8g2 font selected
   flushUI();
   return true;
 }

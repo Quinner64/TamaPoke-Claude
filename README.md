@@ -34,6 +34,17 @@ first run**, and a one-click **web installer**.
 Pending: wild encounters / battle (designed, not implemented), 3D case, soak
 test. See **Roadmap**.
 
+## Claude Code usage dashboard
+
+Plugged into your computer over USB, the board doubles as a desk display for
+[Claude Code](https://code.claude.com). It shows context window used and left,
+session time, the plan's 5-hour and weekly limits, the session cost, and whether
+Claude is working, done or waiting for you, with a chime when it needs you. No
+API key needed: a small PC bridge (`tools/claude_monitor.py`) forwards what
+Claude Code already reports. Setup and details: **[CLAUDE_MONITOR.md](CLAUDE_MONITOR.md)**.
+
+![Claude dashboard pages](docs/claude-monitor/overview.png)
+
 ## Game manual (the actual numbers)
 
 A quick reference to how the game really works (values straight from the code).
@@ -294,6 +305,8 @@ If one bottoms out it counts as a *slip-up*.
   "Train strength" button opens the bag).
 - Swipe down = **set the clock** and pick the **language** + sound on/off.
 - Long press (3 s) on the creature = **release** dialog.
+- With the Claude bridge connected: swipe right = the **Claude dashboard**
+  (see [CLAUDE_MONITOR.md](CLAUDE_MONITOR.md)).
 
 **Physical PWR button:** short = screen on/off · long (4 s) = full power-off
 (the RTC stays alive, so time passes even while it's off).
@@ -402,6 +415,8 @@ beach, forest, volcano, mountain, snow). Sleeping forces night.
 - `rtcbat.h` / `rtcbat.cpp` — PCF85063 RTC + AXP2101 PMU (battery, brightness, PWR button)
 - `audio.h` / `audio.cpp` — ES8311 + I2S + Game-Boy-style tone synth (non-blocking task)
 - `i18n.h` / `i18n.cpp` — the 9-language string tables
+- `claudemon.h` / `claudemon.cpp` + `claudeui.h` / `claudeui.cpp` — the Claude Code
+  usage dashboard (protocol + screens), fed by `tools/claude_monitor.py`
 - `dex.h` — GENERATED (`gen_dex.py`): the 151 table
 - `species.h` — GENERATED (`sprites.py`): fallback sprites, UI icons, colours
 - `pin_config.h` — the board's official pins
@@ -444,7 +459,8 @@ What the firmware does to save power (the policy is in `power.h`, covered by `te
 runaway-ready state) · `WIPE` (factory reset → new game) · `BEEP` (audio test) ·
 `REG` (Pokédex) · `EGGS` (simulate 20 eggs) · `GAL` (gallery) · `CAREDAY` ·
 `TIME <epoch>` / `RTCSET <epoch>` · `HEALTH` (uptime + heap for the soak test) ·
-`LS` / `PUT` (SD files).
+`LS` / `PUT` (SD files) · `CLAUDE?` / `CLAUDE k=v ...` (Claude dashboard, sent by
+`tools/claude_monitor.py`; protocol in `claudemon.h`).
 
 To test fast: lower `PET_TICK_MS`, `MINUTES_PER_LEVEL` and `FAREWELL_AGE_MIN` in `pet.h`.
 
