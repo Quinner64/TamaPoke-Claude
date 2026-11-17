@@ -21,6 +21,10 @@ echo "== herramientas y ficheros generados (tools/) =="
 python3 test_tools.py || fail=1
 
 echo
+echo "== puente Claude Code -> placa (tools/claude_monitor.py) =="
+python3 test_claude_monitor.py || fail=1
+
+echo
 if [[ $fail -eq 0 ]]; then
   echo "TODO OK"
 else
