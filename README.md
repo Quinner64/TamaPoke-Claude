@@ -39,9 +39,11 @@ test. See **Roadmap**.
 Plugged into your computer over USB, the board doubles as a desk display for
 [Claude Code](https://code.claude.com). It shows context window used and left,
 session time, the plan's 5-hour and weekly limits, the session cost, and whether
-Claude is working, done or waiting for you, with a chime when it needs you. No
-API key needed: a small PC bridge (`tools/claude_monitor.py`) forwards what
-Claude Code already reports. Setup and details: **[CLAUDE_MONITOR.md](CLAUDE_MONITOR.md)**.
+Claude is working, done or waiting for you, with a chime when it needs you. Your
+Pokémon stays on screen in its biome and acts out what Claude is doing; the
+context window is its HP bar. No API key needed: a small PC bridge
+(`tools/claude_monitor.py`) forwards what Claude Code already reports. Setup and
+details: **[CLAUDE_MONITOR.md](CLAUDE_MONITOR.md)**.
 
 ![Claude dashboard pages](docs/claude-monitor/overview.png)
 
@@ -417,6 +419,8 @@ beach, forest, volcano, mountain, snow). Sleeping forces night.
 - `i18n.h` / `i18n.cpp` — the 9-language string tables
 - `claudemon.h` / `claudemon.cpp` + `claudeui.h` / `claudeui.cpp` — the Claude Code
   usage dashboard (protocol + screens), fed by `tools/claude_monitor.py`
+- `scene.h` / `scene.cpp` + `pmddraw.h` — the biome scene and the PMD sprite drawing,
+  shared by the main screen and the Claude dashboard
 - `dex.h` — GENERATED (`gen_dex.py`): the 151 table
 - `species.h` — GENERATED (`sprites.py`): fallback sprites, UI icons, colours
 - `pin_config.h` — the board's official pins

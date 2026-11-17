@@ -16,9 +16,17 @@ Updating from the [web installer](https://socquique.github.io/TamaPoke/web/)
   and whether Claude is working, done or needs you. NEEDS YOU and errors chime,
   and so does a turn that ran 30 s or more when it finishes. It opens by itself
   when the PC bridge connects (`tools/claude_monitor.py`; no API key needed).
-  Swipe up for the pet. Setup in [CLAUDE_MONITOR.md](CLAUDE_MONITOR.md). Screen
-  previews are rendered from the firmware code itself by
-  `tools/claude_preview/build.sh`.
+  It is drawn like the rest of the game: the pet stands in its biome and acts
+  out Claude's status, the context window is its HP bar, the plan limits are a
+  stat card and the session is a trainer-style card. Swipe up for the pet.
+  Setup in [CLAUDE_MONITOR.md](CLAUDE_MONITOR.md). Screen previews are rendered
+  from the firmware code itself by `tools/claude_preview/build.sh`.
+
+### Changed
+
+- The biome scene and the PMD sprite drawing moved from `TamaPoke.ino` to
+  `scene.cpp` and `pmddraw.h`, unchanged, so the Claude dashboard draws the
+  same world.
 
 ## [1.21] - 2026-11-16
 

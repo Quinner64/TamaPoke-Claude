@@ -89,6 +89,9 @@ void claudeFmtTokens(int32_t t, char *buf, size_t n);    // 850, 12.3k, 124k, 1.
 void claudeFmtDuration(int32_t s, char *buf, size_t n);  // 45s, 12m, 1h 23m, 3d 4h
 void claudeFmtCents(int32_t c, char *buf, size_t n);     // $0.42, $12.30, $123, $1.2k
 const char *claudeStatusText(uint8_t st);
+// The two lines of the dialog box for a status (at most 20 characters each: the
+// width of the box in the 5x7 font at size 2). l2 may be "".
+void claudeStatusLines(uint8_t st, const char **l1, const char **l2);
 
 // --- what a dashboard frame shows ------------------------------------------
 // Everything a screen draws, already formatted. The firmware compares
@@ -106,6 +109,7 @@ struct ClaudeFrame {
   char ctxBig[6];        // "62"
   char ctxUsed[28];      // "124k of 200k"
   char ctxLeft[20];      // "76k left"
+  char ctxHp[24];        // "76k/200k": tokens left of the window, read like HP
   char model[24];
   char dur[12];
   char h5Reset[24], w7Reset[24];
@@ -113,10 +117,11 @@ struct ClaudeFrame {
   char title[32];        // session name, else project
   char cost[12], api[12], lines[24];
   char sessions[24];     // "2 sessions open" (empty for one)
+  int16_t nSessions;
   char effort[8];
   char wait1[32], wait2[32];
-  const uint8_t *petThumb;  // gallery thumbnail of the pet (waiting screen), may be null
-  char petMsg[40];          // "Pikachu is hungry" (session page), may be empty
+  const uint8_t *petThumb;  // gallery thumbnail of the pet (session card), may be null
+  char petMsg[40];          // "Pikachu is hungry" (session card), may be empty
 };
 
 struct ClaudeView {
@@ -127,3 +132,6 @@ struct ClaudeView {
 
 void claudeBuildFrame(const ClaudeMon &m, const ClaudeView &v, uint32_t nowMs, ClaudeFrame &f);
 uint32_t claudeFrameKey(const ClaudeFrame &f);
+// Pages where the pet stands on its field (context, waiting): animated, redrawn
+// every frame like the game's main screen. The other pages are static cards.
+inline bool claudeAnimated(const ClaudeFrame &f) { return f.page == 0 || f.page == CLAUDE_PAGE_WAIT; }

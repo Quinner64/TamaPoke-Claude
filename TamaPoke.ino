@@ -49,6 +49,8 @@
 #include "bootbutton.h"
 #include "screenlock.h"
 #include "trainingcapture.h"
+#include "scene.h"
+#include "pmddraw.h"
 #include "claudemon.h"
 #include "claudeui.h"
 #include <Preferences.h>
@@ -264,8 +266,6 @@ Btn buttons[4] = {
 // grietas del huevo (pixeles 'k' sobre el sprite)
 static const uint8_t CRACK1[][2] = { {15,8},{16,9},{15,10} };
 static const uint8_t CRACK2[][2] = { {11,13},{12,14},{11,15},{20,12},{19,13},{20,14} };
-// estrellas del modo noche
-static const uint16_t STARS[][2] = { {120,140},{330,120},{370,210},{95,230},{280,90},{160,95} };
 
 bool wasPressed = false;
 // eleccion de inicial (primera partida): Bulbasaur / Charmander / Squirtle, 3 filas
@@ -1346,16 +1346,7 @@ uint16_t inkColor() { return gNight ? UI_INK_NIGHT : UI_INK; }
 
 // ---------- escena de fondo: bioma del tipo + hora real del RTC ----------
 
-#define C565(r, g, b) ((uint16_t)((((r) >> 3) << 11) | (((g) >> 2) << 5) | ((b) >> 3)))
-#define HORIZON (LCD_HEIGHT / 2 - 1)  // linea donde el cielo se encuentra con el suelo
-
-uint16_t lerp565(uint16_t a, uint16_t b, int i, int n) {
-  if (n <= 0) return a;
-  int ar = (a >> 11) & 31, ag = (a >> 5) & 63, ab = a & 31;
-  int br = (b >> 11) & 31, bg = (b >> 5) & 63, bb = b & 31;
-  return (uint16_t)((((ar + (br - ar) * i / n) << 11)) |
-                    (((ag + (bg - ag) * i / n) << 5)) | (ab + (bb - ab) * i / n));
-}
+// (sky, sun, ground and biome details live in scene.cpp, shared with the Claude dashboard)
 
 // hora del dia 0-23 (de la hora real cacheada cada 30s; 13 si no hay reloj)
 int sceneHour() {
@@ -1363,96 +1354,8 @@ int sceneHour() {
   return e ? (int)((e / 3600) % 24) : 13;
 }
 
-// suelo de cada bioma de dia (de noche se mezcla hacia el azul nocturno)
-static const uint16_t BIOME_SOIL[6] = {
-  C565(0x7e, 0xc0, 0x7f),  // 0 pradera
-  C565(0xdc, 0xca, 0x94),  // 1 playa (arena)
-  C565(0x4f, 0x8a, 0x55),  // 2 bosque
-  C565(0x8a, 0x55, 0x44),  // 3 volcan
-  C565(0xa8, 0x90, 0x6a),  // 4 montana
-  C565(0xe6, 0xee, 0xf5),  // 5 nieve
-};
-
-void drawClouds(uint32_t now, uint16_t col) {
-  for (int k = 0; k < 2; k++) {
-    int cx = (int)((now / 50 + k * 250) % 560) - 40;
-    int cy = 70 + k * 34;
-    gfx->fillCircle(cx, cy, 16, col);
-    gfx->fillCircle(cx + 18, cy + 3, 13, col);
-    gfx->fillCircle(cx - 15, cy + 4, 12, col);
-  }
-}
-
 void drawScene(uint8_t biome, uint32_t now, bool night) {
-  int h = sceneHour();
-  uint16_t top, bot;
-  if (night)            { top = C565(0x0c, 0x12, 0x24); bot = C565(0x1e, 0x26, 0x46); }
-  else if (h < 8)       { top = C565(0xd1, 0x6a, 0x86); bot = C565(0xf3, 0xb8, 0x7c); }  // amanecer
-  else if (h < 18)      { top = C565(0x8f, 0xc8, 0xea); bot = C565(0xdc, 0xee, 0xe6); }  // dia
-  else                  { top = C565(0xc7, 0x5a, 0x4a); bot = C565(0xf0, 0xae, 0x64); }  // atardecer
-
-  // cielo en bandas
-  for (int y = 0; y < HORIZON; y += 8)
-    gfx->fillRect(0, y, LCD_WIDTH, 8, lerp565(top, bot, y, HORIZON));
-
-  // sol o luna
-  if (night) {
-    gfx->fillCircle(360, 78, 24, C565(0xe8, 0xee, 0xf5));
-    gfx->fillCircle(370, 72, 22, lerp565(top, bot, 78, HORIZON));  // creciente
-    for (auto &st : STARS) gfx->fillRect(st[0], st[1], 4, 4, UI_WHITE);
-  } else if (h < 18) {
-    gfx->fillCircle(360, 84, 26, h < 8 ? C565(0xff, 0xd9, 0x8a) : C565(0xff, 0xe7, 0x9f));
-    drawClouds(now, C565(0xff, 0xff, 0xff));
-  } else {
-    gfx->fillCircle(CX, HORIZON - 6, 34, C565(0xff, 0xf1, 0xc8));  // sol poniente
-  }
-
-  // mar de la playa: una franja de agua sobre la arena
-  uint16_t soil = BIOME_SOIL[biome < 6 ? biome : 0];
-  if (night) soil = lerp565(soil, C565(0x16, 0x1c, 0x30), 9, 16);
-  if (biome == 1) {
-    uint16_t sea = night ? C565(0x1c, 0x34, 0x52) : C565(0x4f, 0x96, 0xc4);
-    gfx->fillRect(0, HORIZON - 26, LCD_WIDTH, 26, sea);
-    for (int i = 0; i < 3; i++) {
-      int wy = HORIZON - 22 + i * 7;
-      uint16_t fc = night ? C565(0x3a, 0x58, 0x78) : C565(0xbf, 0xe6, 0xf5);
-      gfx->fillRect(60 + ((now / 60 + i * 30) % 60), wy, 26, 2, fc);
-      gfx->fillRect(300 - ((now / 60 + i * 20) % 60), wy, 26, 2, fc);
-    }
-  }
-
-  // suelo
-  gfx->fillRect(0, HORIZON, LCD_WIDTH, LCD_HEIGHT - HORIZON, soil);
-  uint16_t hill = lerp565(soil, night ? C565(0x0c, 0x12, 0x24) : C565(0xff, 0xff, 0xff), 3, 16);
-  gfx->fillRoundRect(-60, HORIZON - 14, 586, 60, 30, hill);
-
-  // detalles del bioma
-  uint16_t dk = lerp565(soil, C565(0x10, 0x18, 0x20), night ? 11 : 7, 16);
-  if (biome == 2) {  // bosque: coniferas en silueta
-    for (int tx : { 60, 150, 360, 416 }) {
-      gfx->fillTriangle(tx, HORIZON - 46, tx - 16, HORIZON, tx + 16, HORIZON, dk);
-      gfx->fillTriangle(tx, HORIZON - 60, tx - 12, HORIZON - 28, tx + 12, HORIZON - 28, dk);
-    }
-  } else if (biome == 3) {  // volcan: rocas y brasas
-    gfx->fillTriangle(70, HORIZON, 40, HORIZON + 30, 100, HORIZON + 30, dk);
-    gfx->fillTriangle(400, HORIZON + 4, 372, HORIZON + 30, 430, HORIZON + 30, dk);
-    if (!night)
-      for (int e = 0; e < 4; e++)
-        gfx->fillRect(120 + e * 70, HORIZON + 8 + (e % 2) * 6, 4, 4, C565(0xff, 0x9b, 0x3a));
-  } else if (biome == 4) {  // montana: cumbres al fondo
-    gfx->fillTriangle(140, HORIZON - 50, 60, HORIZON, 220, HORIZON, dk);
-    gfx->fillTriangle(330, HORIZON - 38, 250, HORIZON, 410, HORIZON, dk);
-  } else if (biome == 5 && !night) {  // nieve: copos cayendo
-    for (int f = 0; f < 10; f++) {
-      int fx = (f * 53 + now / 40) % LCD_WIDTH;
-      int fy = (f * 90 + now / 18) % HORIZON;
-      gfx->fillRect(fx, fy, 3, 3, UI_WHITE);
-    }
-  } else if (biome == 0) {  // pradera: matas de hierba
-    for (int gx : { 80, 175, 300, 395 })
-      for (int b = -1; b <= 1; b++)
-        gfx->fillRect(gx + b * 5, HORIZON + 6, 2, 8 + (b == 0 ? 4 : 0), dk);
-  }
+  sceneDraw(gfx, LCD_WIDTH, LCD_HEIGHT, biome, now, night, sceneHour());
 }
 
 // primera partida: elige inicial entre Bulbasaur / Charmander / Squirtle
@@ -1881,21 +1784,32 @@ void claudeTick(uint32_t now) {
   if (claude.alive(now) && claudeCanOpen() && idleSince(now, lastInteract) > CLAUDE_RETURN_MS) openClaude(0);
 }
 
-// Draws the dashboard only when something on it changed (see claudeFrameKey):
-// most frames it is identical, and skipping the QSPI flush saves power.
+// The context page shows the pet on its field, animated like the main screen,
+// so it is drawn every frame. The card pages are drawn only when something on
+// them changed (see claudeFrameKey): skipping the QSPI flush saves power.
 bool renderClaude() {
+  uint32_t now = millis();
   ClaudeView v;
   v.page = claudePage;
   v.petThumb = pet.isEgg() ? nullptr : thumbs.get(pet.speciesId);
   v.petMsg = claudePetMsg();
   ClaudeFrame f;
-  claudeBuildFrame(claude, v, millis(), f);
+  claudeBuildFrame(claude, v, now, f);
+  bool animated = claudeAnimated(f);
   uint32_t k = claudeFrameKey(f);
-  if (claudeKeyValid && k == claudeLastKey) return false;
+  if (!animated && claudeKeyValid && k == claudeLastKey) return false;
   claudeLastKey = k;
-  claudeKeyValid = true;
-  claudeDraw(gfx, f, CX, CY, PANEL_ROUND);
-  applyLangFont();  // claudeDraw leaves a U8g2 font selected
+  claudeKeyValid = !animated;
+  ClaudeScene sc;
+  int h = sceneHour();
+  sc.hour = h;
+  sc.asleep = pet.sleeping;
+  sc.night = pet.sleeping || h < 6 || h >= 20;  // same rule as the main screen
+  sc.biome = pet.isEgg() ? 0 : DEX_TBL[pet.speciesId].biome;
+  sc.pet = pmd.loaded ? &pmd : nullptr;
+  sc.thumb = v.petThumb;
+  claudeDraw(gfx, f, sc, now, CX, CY, PANEL_ROUND);
+  applyLangFont();  // claudeDraw selects the classic font; CJK languages use their own
   flushUI();
   return true;
 }
@@ -3212,46 +3126,11 @@ void drawBath() {
 
 // ---------- mascota PMD: comportamiento ----------
 
-uint32_t pmdActTotalMs(const PmdAct &a) {
-  uint32_t t = 0;
-  for (uint8_t i = 0; i < a.frames; i++) t += a.ms[i];
-  return t ? t : 100;
-}
-
-uint8_t pmdFrameAt(const PmdAct &a, uint32_t t, bool loop) {
-  uint32_t total = pmdActTotalMs(a);
-  if (!loop && t >= total) return a.frames - 1;
-  t %= total;
-  uint8_t i = 0;
-  // guarda: nunca mas vueltas que frames, por si un .bin corrupto trae ms[]=0
-  // pese al saneo de la carga (defensa en profundidad)
-  for (uint8_t guard = 0; guard < a.frames && t >= a.ms[i]; guard++) {
-    t -= a.ms[i];
-    i = (i + 1) % a.frames;
-  }
-  return i;
-}
-
+// pmdActTotalMs() / pmdFrameAt() / pmdDraw(): pmddraw.h (shared with the Claude dashboard)
 // dibuja una accion anclada por la base (centro-x, suelo) y devuelve su escala
 // dibuja una accion de un PmdMon concreto (m); drawPmdAct usa el global pmd
 void drawPmdActM(PmdMon &m, uint8_t actId, int cx, int groundY, uint32_t t, bool loop, bool sil, uint8_t maxS) {
-  const PmdAct &a = m.acts[actId];
-  if (!a.frames) return;
-  uint8_t sBase = m.acts[PMD_IDLE].h ? 170 / m.acts[PMD_IDLE].h : 5;
-  if (sBase < 2) sBase = 2;
-  if (sBase > maxS) sBase = maxS;
-  uint8_t s = sBase;
-  while (s > 2 && a.h * s > 250) s--;  // acciones con frame grande (ataque)
-  uint8_t fi = pmdFrameAt(a, t, loop);
-  const uint8_t *fr = a.data + (uint32_t)fi * a.w * a.h;
-  // anclar por los pies (a.base), no por el alto del lienzo: asi las acciones
-  // con padding distinto (Hurt, Eat...) quedan todas a la misma altura de suelo
-  int x0 = cx - a.w * s / 2, y0 = groundY - (a.base ? a.base : a.h) * s;
-  for (int r = 0; r < a.h; r++) {
-    const uint8_t *row = fr + r * a.w;
-    forRuns(a.w, [&](int c) { return indexedKey(row[c], sil); },
-            [&](int c0, int len, int k) { gfx->fillRect(x0 + c0 * s, y0 + r * s, len * s, s, sil ? INK_K : m.pal[k]); });
-  }
+  pmdDraw(gfx, m, actId, cx, groundY, t, loop, sil, maxS, INK_K);
 }
 void drawPmdAct(uint8_t actId, int cx, int groundY, uint32_t t, bool loop, bool sil, uint8_t maxS) {
   drawPmdActM(pmd, actId, cx, groundY, t, loop, sil, maxS);

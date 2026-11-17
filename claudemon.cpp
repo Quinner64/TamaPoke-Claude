@@ -177,6 +177,18 @@ const char *claudeStatusText(uint8_t st) {
   }
 }
 
+void claudeStatusLines(uint8_t st, const char **l1, const char **l2) {
+  *l2 = "";
+  switch (st) {
+    case CS_WORKING: *l1 = "Claude is working..."; break;
+    case CS_DONE: *l1 = "Your turn!"; *l2 = "What will you do?"; break;
+    case CS_NEEDS_YOU: *l1 = "Claude needs you!"; *l2 = "Check the terminal."; break;
+    case CS_ERROR: *l1 = "Claude hit an error!"; *l2 = "Check the terminal."; break;
+    case CS_IDLE: *l1 = "Claude is resting."; break;
+    default: *l1 = "No Claude session."; *l2 = "Start Claude Code."; break;
+  }
+}
+
 // --- frame -----------------------------------------------------------------
 
 static void copyText(char *dst, size_t n, const char *src) {
@@ -212,10 +224,10 @@ void claudeBuildFrame(const ClaudeMon &m, const ClaudeView &v, uint32_t nowMs, C
     if (m.ever) {
       char ago[12];
       claudeFmtDuration((int32_t)m.sinceRxS(nowMs), ago, sizeof(ago));
-      copyText(f.wait1, sizeof(f.wait1), "Link to the PC lost");
-      snprintf(f.wait2, sizeof(f.wait2), "last update %s ago", ago);
+      copyText(f.wait1, sizeof(f.wait1), "Lost the PC link.");
+      snprintf(f.wait2, sizeof(f.wait2), "Last data %s ago", ago);
     } else {
-      copyText(f.wait1, sizeof(f.wait1), "Waiting for the PC bridge");
+      copyText(f.wait1, sizeof(f.wait1), "Waiting for your PC");
       copyText(f.wait2, sizeof(f.wait2), "claude_monitor.py serve");
     }
     return;
@@ -236,6 +248,7 @@ void claudeBuildFrame(const ClaudeMon &m, const ClaudeView &v, uint32_t nowMs, C
     int32_t rest = d.ctxMax - d.ctxUsed;
     claudeFmtTokens(rest < 0 ? 0 : rest, a, sizeof(a));
     snprintf(f.ctxLeft, sizeof(f.ctxLeft), "%s left", a);
+    snprintf(f.ctxHp, sizeof(f.ctxHp), "%s/%s", a, b);
   } else if (d.ctxUsed >= 0) {
     claudeFmtTokens(d.ctxUsed, a, sizeof(a));
     snprintf(f.ctxUsed, sizeof(f.ctxUsed), "%s tokens", a);
@@ -269,6 +282,7 @@ void claudeBuildFrame(const ClaudeMon &m, const ClaudeView &v, uint32_t nowMs, C
              (int)(d.linesDel < 0 ? 0 : d.linesDel % 1000000));
   else
     copyText(f.lines, sizeof(f.lines), "--");
+  f.nSessions = d.sessions;
   if (d.sessions > 1) snprintf(f.sessions, sizeof(f.sessions), "%d sessions open", d.sessions);
   copyText(f.effort, sizeof(f.effort), d.effort);
 }

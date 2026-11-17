@@ -4,29 +4,36 @@ Plug the board into your work computer over USB and it becomes a desk display
 for [Claude Code](https://code.claude.com): how full the context window is,
 how much is left, how long the session has run, your plan's 5-hour and weekly
 limits, the session cost, and whether Claude is working, done, or waiting for
-you. Your Pokémon stays on the board. Swipe up to visit it.
+you. It looks like the rest of the game: your Pokémon stands in its biome and
+reacts to what Claude is doing, the context window is its HP bar, and the
+session is a trainer-style card.
 
 ![The dashboard pages](docs/claude-monitor/overview.png)
 
-*These pictures are the firmware's own drawing code, rendered on a PC
-(`tools/claude_preview/build.sh`). They are not mock-ups.*
+*These pictures are the firmware's own drawing code, with the real sprites,
+rendered on a PC (`tools/claude_preview/build.sh`). They are not mock-ups.*
 
 ## What each screen shows
 
 | Screen | Shows |
 |---|---|
-| **Context** | Percent of the context window used, tokens used of the window size, **tokens left**, the model and session time. The ring is green below 60 %, amber up to 80 %, red above. |
-| **Plan limits** | Outer ring: **5-hour** limit. Inner ring: **weekly** limit. Each shows its percentage and when it resets. The numbers turn amber at 70 % and red at 90 %. With an API key (no plan limits) it shows the session cost instead. Behind a Claude apps gateway it shows your spend limit. |
-| **Session** | Session name (or project), model and effort, then cost, session time, time spent waiting on the API, and lines added and removed. Below that: how many Claude Code sessions are open, and a note if your Pokémon needs something ("Pikachu is hungry"). |
+| **Context** | Your Pokémon in its biome, under the sky at the game's hour. Above it, the percent of the context window used. Below it, an **HP bar** for what is left of the window: green above half, yellow, then red under a fifth. Under the bar are tokens left of the window size (`136k/200k`), the model and the session time. |
+| **Plan limits** | A stat card with the **5-hour** and **weekly** limits: bar, percentage and reset countdown for each. The numbers turn amber at 70 % and red at 90 %. With an API key (no plan limits) it shows the session cost instead. Behind a Claude apps gateway it shows your spend limit. |
+| **Session** | A trainer-style **session card**: name, model and effort, MONEY (cost), TIME, API time, LINES added and removed, and how many sessions are OPEN, with your Pokémon. It also says when your Pokémon needs something ("Pikachu is hungry"). |
 
-Every page has a **status pill** at the bottom:
+Every page ends with the game's **text box**, saying what Claude is doing.
+On the Context page your Pokémon acts it out:
 
-- **WORKING** (blue): Claude is responding or running tools.
-- **YOUR TURN** (green): Claude finished. Your move.
-- **NEEDS YOU** (red, with a red rim around the whole screen): Claude is waiting
-  for a permission or an answer.
-- **ERROR** (red): the turn ended with an API error, such as a rate limit.
-- **IDLE** / **NO SESSION**: a session is open but quiet, or no session is open.
+| Claude | Text box | Your Pokémon |
+|---|---|---|
+| working | "Claude is working..." | paces back and forth |
+| finished | "Your turn! / What will you do?" | strikes a pose now and then |
+| waiting for a permission or an answer | "Claude needs you!" in red, with a **red rim** around the whole screen | nods at you, with a "!" bubble |
+| API error (rate limit, ...) | "Claude hit an error!" | looks hurt |
+| quiet | "Claude is resting." | sleeps (Zz) |
+
+The page markers at the bottom are little Poké Balls. At night (or while your
+Pokémon sleeps in the game) the field uses the game's night palette.
 
 With several Claude Code sessions open, the board shows the one that most needs
 you: NEEDS YOU first, then ERROR, WORKING, YOUR TURN, and IDLE. Ties go to the
@@ -34,9 +41,9 @@ session that moved most recently.
 
 | | | |
 |---|---|---|
-| ![Context, working](docs/claude-monitor/context-working.png) | ![Context, your turn](docs/claude-monitor/context-your-turn.png) | ![Context, needs you](docs/claude-monitor/context-needs-you.png) |
+| ![Working](docs/claude-monitor/context-working.gif) | ![Your turn](docs/claude-monitor/context-your-turn.gif) | ![Needs you](docs/claude-monitor/context-needs-you.gif) |
 | ![Plan limits](docs/claude-monitor/limits.png) | ![Plan limits, high](docs/claude-monitor/limits-high.png) | ![Plan limits, API key](docs/claude-monitor/limits-api-key.png) |
-| ![Session](docs/claude-monitor/session.png) | ![1M context window](docs/claude-monitor/context-1m.png) | ![Waiting for the PC](docs/claude-monitor/waiting.png) |
+| ![Session card](docs/claude-monitor/session.png) | ![Resting, at night](docs/claude-monitor/context-idle-night.png) | ![Waiting for the PC](docs/claude-monitor/waiting.png) |
 
 ## How it works
 
@@ -134,8 +141,10 @@ Python that ran it, so they keep working from any folder.
 
 - While Claude works, the screen stays lit. When nothing happens, it dims after
   90 seconds like the rest of the game, which protects the AMOLED.
-- To limit burn-in, the whole dashboard also shifts by up to 2 pixels every 2
-  minutes.
+- The Context page is animated like the game's main screen, at the same frame
+  rates. The two cards are redrawn only when a number on them changes.
+- To limit burn-in, everything drawn over the background shifts by up to 2
+  pixels every 2 minutes.
 - Chimes: **NEEDS YOU** and **ERROR** always chime. **YOUR TURN** chimes only
   when Claude worked for 30 seconds or more, which is when you have probably
   looked away. The chimes use the game's volume. Mute them from the settings
@@ -170,7 +179,8 @@ Python that ran it, so they keep working from any folder.
 | File | What |
 |---|---|
 | `claudemon.h` / `claudemon.cpp` | Protocol parser, countdowns, alerts, and the formatted contents of each frame. Plain logic, tested on the PC (`test/test_claudemon.cpp`). |
-| `claudeui.h` / `claudeui.cpp` | Draws the pages (Arduino_GFX + U8g2 fonts). |
+| `claudeui.h` / `claudeui.cpp` | Draws the pages in the game's look: pixel font, cream cards, stat bars, text box. |
+| `scene.h` / `scene.cpp`, `pmddraw.h` | The game's biome scene and PMD sprite drawing, moved out of `TamaPoke.ino` unchanged so the game and the dashboard share them. |
 | `TamaPoke.ino` | Serial `CLAUDE` lines, gestures, auto-open, wake-ups and chimes (search for "Claude dashboard"). |
 | `tools/claude_monitor.py` | PC bridge: `install`, `serve`, `status`, `demo`, `uninstall` (and `statusline` / `hook`, which Claude Code runs). Tests: `test/test_claude_monitor.py`. |
-| `tools/claude_preview/` | Renders the screens on a PC from the firmware code: `build.sh` makes the sample images in `docs/claude-monitor/`, and `build.sh --live` renders what your own data looks like right now. |
+| `tools/claude_preview/` | Renders the screens on a PC from the firmware code and the real sprites: `build.sh` makes the sample images and GIFs in `docs/claude-monitor/`, and `build.sh --live` renders what your own data looks like right now. |

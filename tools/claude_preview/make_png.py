@@ -3,9 +3,10 @@
 
   make_png.py thumb SPRITE.bin OUT.bin   gallery thumbnail blob of a PMD sprite
                                           (same format as /mons/thumbs.bin entries)
-  make_png.py png BUILD_DIR OUT_DIR      every BUILD_DIR/*.rgb565 (466x466) -> PNG
+  make_png.py png BUILD_DIR OUT_DIR      every BUILD_DIR/<name>.rgb565 (466x466) -> PNG
                                           with the round panel mask and a bezel,
-                                          plus overview.png with all of them
+                                          <name>.NN.rgb565 frames -> <name>.gif,
+                                          plus overview.png with the main pages
 """
 
 import struct
@@ -52,20 +53,50 @@ def framed(img):
     return out
 
 
+def to_gif_frame(img):
+    """RGBA with a hard-edged alpha -> palette image with one transparent index."""
+    from PIL import Image
+
+    key = (255, 0, 255)
+    flat = Image.new("RGB", img.size, key)
+    flat.paste(img, (0, 0), img)
+    p = flat.quantize(colors=255, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
+    pal = p.getpalette()[: 256 * 3]
+    for i in range(len(pal) // 3):
+        if tuple(pal[i * 3: i * 3 + 3]) == key:
+            p.info["transparency"] = i
+            break
+    return p
+
+
 def cmd_png(build, out):
+    import re
     from PIL import Image
 
     build, out = Path(build), Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    frames = []
+    stills, anims = {}, {}
     for raw in sorted(build.glob("*.rgb565")):
+        m = re.match(r"(.+)\.(\d\d)$", raw.stem)
+        if m:
+            anims.setdefault(m.group(1), []).append(raw)
+        else:
+            stills[raw.stem] = raw
+    frames = {}
+    for name, raw in stills.items():
         img = framed(rgb565_to_image(raw.read_bytes()))
-        img.save(out / (raw.stem + ".png"), optimize=True)
-        frames.append((raw.stem, img))
-        print(f"  {out / (raw.stem + '.png')}")
-    # overview: the main screens side by side, half size
+        img.save(out / (name + ".png"), optimize=True)
+        frames[name] = img
+        print(f"  {out / (name + '.png')}")
+    for name, raws in anims.items():
+        imgs = [to_gif_frame(framed(rgb565_to_image(r.read_bytes()))) for r in raws]
+        path = out / (name + ".gif")
+        imgs[0].save(path, save_all=True, append_images=imgs[1:], duration=100, loop=0, disposal=2,
+                     optimize=False)
+        print(f"  {path}")
+    # overview: the three pages, and Claude waiting on you, side by side at half size
     pick = ["context-working", "limits", "session", "context-needs-you"]
-    chosen = [img for name, img in frames if name in pick]
+    chosen = [frames[n] for n in pick if n in frames]
     if chosen:
         cell = chosen[0].width // 2
         sheet = Image.new("RGBA", (cell * len(chosen) + 16 * (len(chosen) - 1), cell), (0, 0, 0, 0))

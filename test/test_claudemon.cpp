@@ -188,6 +188,8 @@ TEST(claude, frame_shows_context_used_and_left) {
   CHECK_EQ(std::string(f.ctxBig), std::string("62"));
   CHECK_EQ(std::string(f.ctxUsed), std::string("124k of 200k"));
   CHECK_EQ(std::string(f.ctxLeft), std::string("76k left"));
+  CHECK_EQ(std::string(f.ctxHp), std::string("76k/200k"));  // read like HP: what is left of the window
+  CHECK_EQ(f.nSessions, 2);
   CHECK_EQ(std::string(f.dur), std::string("1h 23m"));
   CHECK_EQ(std::string(f.title), std::string("Fix login"));
   CHECK_EQ(std::string(f.sessions), std::string("2 sessions open"));
@@ -216,11 +218,11 @@ TEST(claude, frame_without_a_link_is_the_waiting_screen) {
   ClaudeFrame f;
   claudeBuildFrame(m, view(1), 5000, f);
   CHECK_EQ((int)f.page, (int)CLAUDE_PAGE_WAIT);
-  CHECK_EQ(std::string(f.wait1), std::string("Waiting for the PC bridge"));
+  CHECK_EQ(std::string(f.wait1), std::string("Waiting for your PC"));
   m.feed(FULL, 10000);
   claudeBuildFrame(m, view(1), 10000 + 5 * 60000, f);
   CHECK_EQ((int)f.page, (int)CLAUDE_PAGE_WAIT);
-  CHECK_EQ(std::string(f.wait2), std::string("last update 5m ago"));
+  CHECK_EQ(std::string(f.wait2), std::string("Last data 5m ago"));
 }
 
 TEST(claude, frame_key_changes_only_with_what_is_drawn) {
@@ -249,4 +251,33 @@ TEST(claude, frame_drifts_a_few_pixels_against_burn_in) {
     if (f.ox || f.oy) moved++;
   }
   CHECK(moved > 0);
+}
+
+TEST(claude, every_status_has_a_dialog_that_fits_the_box) {
+  // the text box holds 20 characters per line in the 5x7 font at size 2
+  for (uint8_t st = 0; st < CS_COUNT; st++) {
+    const char *l1 = nullptr, *l2 = nullptr;
+    claudeStatusLines(st, &l1, &l2);
+    CHECK(l1 && l1[0]);
+    CHECK(l2);
+    CHECK_MSG(strlen(l1) <= 20, l1);
+    CHECK_MSG(strlen(l2) <= 20, l2);
+  }
+  const char *l1, *l2;
+  claudeStatusLines(CS_DONE, &l1, &l2);
+  CHECK_EQ(std::string(l1), std::string("Your turn!"));
+}
+
+TEST(claude, the_field_pages_animate_and_the_cards_do_not) {
+  ClaudeMon m;
+  ClaudeFrame f;
+  claudeBuildFrame(m, view(0), 0, f);
+  CHECK(claudeAnimated(f));  // waiting screen: the pet naps on its field
+  m.feed(FULL, 0);
+  claudeBuildFrame(m, view(0), 0, f);
+  CHECK(claudeAnimated(f));
+  claudeBuildFrame(m, view(1), 0, f);
+  CHECK(!claudeAnimated(f));
+  claudeBuildFrame(m, view(2), 0, f);
+  CHECK(!claudeAnimated(f));
 }
