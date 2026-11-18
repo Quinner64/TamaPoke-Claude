@@ -437,6 +437,10 @@ def build_state(now=None, sessions=None):
         state.update({k: v for k, v in snap.items()
                       if not k.endswith("_at") and k not in ("h5", "w7", "sp", "spu", "spl")})
         state["st"] = STATUS_CODE.get(session_status(sess, now), ST_IDLE)
+        # the other sessions waiting on you (turn done, or asking): the board shows
+        # one session, so this badge is how a finished turn behind a working one shows up
+        state["wt"] = sum(1 for k, s in live.items()
+                          if k != sid and session_status(s, now) in ("done", "needs_you"))
 
     # plan limits are per account: the freshest snapshot that has them, from any session
     best = None
@@ -470,7 +474,7 @@ def ascii_text(s, limit):
 
 TEXT_KEYS = {"model": 23, "proj": 27, "name": 31, "eff": 7}
 INT_KEYS = ["st", "ctx", "max", "pct", "cost", "dur", "api", "la", "lr", "h5", "r5", "w7", "r7", "sp", "rs",
-            "spu", "spl", "n"]
+            "spu", "spl", "n", "wt"]
 
 
 def encode_line(state):

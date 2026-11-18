@@ -1,5 +1,6 @@
-// Claude dashboard screens, laid out to be read from across a desk: a dark
-// screen tinted by what Claude is doing, one big status word, and only a few
+// Claude dashboard screens, laid out to be read from across a desk: a screen
+// tinted by what Claude is doing (a battle field of water or tall grass while it
+// works or waits for you), one big status word, and only a few
 // numbers per page, drawn large. Page 0 wraps the screen in a ring that fills as
 // the context window is used, with the percentage in the middle and your pet
 // acting out the status below it. Everything shown comes pre-formatted in a
@@ -55,6 +56,13 @@ static void txtC(Arduino_GFX *g, const char *s, int cx, int y, int size, uint16_
   txt(g, s, cx - (tw(s, size) - size) / 2, y, size, col);
 }
 
+// centred, with a dark drop shadow so it holds up over a busy background
+static void txtCS(Arduino_GFX *g, const char *s, int cx, int y, int size, uint16_t col) {
+  int d = size >= 6 ? 4 : size >= 3 ? 3 : 2;
+  txtC(g, s, cx + d, y + d, size, 0x0000);
+  txtC(g, s, cx, y, size, col);
+}
+
 // the largest size from `size` down to `minSize` at which `s` fits in `w` px
 static int fitSize(const char *s, int w, int size, int minSize) {
   while (size > minSize && tw(s, size) - size > w) size--;
@@ -87,12 +95,73 @@ static uint16_t stColor(uint8_t st) {
 // even when the words don't. NEEDS YOU flashes brighter on the animated pages.
 static uint16_t stBg(uint8_t st, bool flash) {
   switch (st) {
-    case CS_WORKING: return C565(0x06, 0x16, 0x30);
-    case CS_DONE: return C565(0x06, 0x24, 0x12);
+    case CS_WORKING: return C565(0x0a, 0x2c, 0x66);
+    case CS_DONE: return C565(0x0a, 0x46, 0x26);
     case CS_NEEDS_YOU: return flash ? C565(0x86, 0x14, 0x10) : C565(0x42, 0x08, 0x08);
     case CS_ERROR: return C565(0x3a, 0x16, 0x04);
     default: return C565(0x10, 0x12, 0x1a);
   }
+}
+
+static uint16_t mix565(uint16_t a, uint16_t b, int t, int n) {  // a..b, t of n
+  int r = ((a >> 11) * (n - t) + (b >> 11) * t) / n;
+  int g = (((a >> 5) & 63) * (n - t) + ((b >> 5) & 63) * t) / n;
+  int bl = ((a & 31) * (n - t) + (b & 31) * t) / n;
+  return (uint16_t)((r << 11) | (g << 5) | bl);
+}
+static uint16_t lift(uint16_t c, int t) { return mix565(c, 0xFFFF, t, 16); }  // t/16 toward white
+static uint16_t sink(uint16_t c, int t) { return mix565(c, 0x0000, t, 16); }  // t/16 toward black
+
+// a wave crest, about 26 x 8 px, centred on (x, y)
+static void wave(Arduino_GFX *g, int x, int y, uint16_t col) { g->fillArc(x, y + 8, 13, 10, 210, 330, col); }
+// a tuft of tall grass, three blades, base centred on (x, y)
+static void tuft(Arduino_GFX *g, int x, int y, int h, uint16_t col) {
+  g->fillTriangle(x - 10, y, x - 4, y, x - 9, y - h * 2 / 3, col);
+  g->fillTriangle(x - 4, y, x + 4, y, x, y - h, col);
+  g->fillTriangle(x + 4, y, x + 10, y, x + 9, y - h * 2 / 3, col);
+}
+
+// WORKING and YOUR TURN are a battle field: a sky fading lighter to the horizon,
+// then water (WORKING, blue) or tall grass (YOUR TURN, green). On page 0
+// (`glance`) the horizon sits just under the pet, which stands on a battle base;
+// on the cards it runs along the bottom, under the text.
+static void battleField(Arduino_GFX *g, uint8_t st, int W, int H, int cx, int cy, bool glance) {
+  bool water = st == CS_WORKING;
+  uint16_t base = stBg(st, false);
+  int hz = glance ? cy + 60 : cy + 130;
+  uint16_t skyT = sink(base, 6), skyB = lift(base, 3);
+  for (int y = 0; y < hz; y += 8) g->fillRect(0, y, W, 8, mix565(skyT, skyB, y, hz));
+  uint16_t gr = water ? C565(0x10, 0x3c, 0x86) : C565(0x22, 0x62, 0x2a);
+  g->fillRect(0, hz, W, H - hz, gr);
+  g->fillRect(0, hz, W, 3, lift(gr, 5));
+  uint16_t mk = water ? lift(gr, 4) : sink(gr, 5);
+  for (int r = 0; hz + 18 + r * 26 < H; r++)
+    for (int x = (r & 1) * 40 - 20; x < W + 40; x += 80) {
+      int y = hz + 18 + r * 26;
+      if (water) wave(g, x, y, mk);
+      else tuft(g, x, y + 10, 14, mk);
+    }
+  if (glance) {  // the battle base the pet stands on
+    int by = cy + 82;
+    g->fillEllipse(cx, by, 92, 15, sink(gr, 6));
+    g->fillEllipse(cx, by - 2, 86, 12, lift(gr, water ? 3 : 4));
+    g->fillEllipse(cx, by - 3, 64, 7, lift(gr, water ? 5 : 6));
+  }
+}
+
+// paints the status background over the whole W x H screen; (cx, cy) is the
+// design centre, already offset
+static void statusBg(Arduino_GFX *g, uint8_t st, bool flash, int W, int H, int cx, int cy, bool glance) {
+  if (st == CS_WORKING || st == CS_DONE) battleField(g, st, W, H, cx, cy, glance);
+  else g->fillRect(0, 0, W, H, stBg(st, flash));
+}
+
+// the status word: a paler shade of the status colour, so it still stands out on
+// the battle field's sky of the same hue
+static uint16_t stWord(uint8_t st) {
+  if (st == CS_WORKING) return C565(0xb4, 0xdc, 0xff);
+  if (st == CS_DONE) return C565(0xb0, 0xff, 0xbc);
+  return stColor(st);
 }
 
 // context used: green under half, yellow, red from 80 %
@@ -144,10 +213,22 @@ static void pageDots(const Ctx &c, int page) {
     pokeball(c.g, c.X(233 + (i - 1) * 26), c.Y(398), i == page ? 8 : 6, i == page);
 }
 
+// "+1 WAITING": other sessions whose turn is done (or that are asking) while the
+// board shows this one. A yellow pill over the page dots, on every page.
+static void waitBadge(const Ctx &c, int n) {
+  if (n <= 0) return;
+  char s[16];
+  snprintf(s, sizeof(s), "+%d WAITING", n);
+  int w = tw(s, 2) - 2 + 24, x = c.X(233) - w / 2, y = c.Y(361);
+  c.g->fillRoundRect(x + 2, y + 3, w, 25, 12, 0x0000);  // shadow
+  c.g->fillRoundRect(x, y, w, 25, 12, CD_YELLOW);
+  txtC(c.g, s, c.X(233), y + 5, 2, CC_INK);
+}
+
 // the status word along the top of the card pages
 static void cardHeader(const Ctx &c, const ClaudeFrame &f) {
   const char *w = claudeStatusText(f.status);
-  txtC(c.g, w, c.X(233), c.Y(46), fitSize(w, 190, 3, 2), stColor(f.status));
+  txtCS(c.g, w, c.X(233), c.Y(46), fitSize(w, 190, 3, 2), stWord(f.status));
 }
 
 // gallery thumbnail (w, h, palCount, pal[], idx[]; 0xFF = transparent), cropped to
@@ -234,18 +315,19 @@ static int actingPet(Arduino_GFX *g, const ClaudeScene &sc, uint8_t st, uint32_t
 static void pageGlance(const Ctx &c, const ClaudeFrame &f, const ClaudeScene &sc, uint32_t now) {
   Arduino_GFX *g = c.g;
   int cx = c.X(233);
-  g->fillScreen(stBg(f.status, f.status == CS_NEEDS_YOU && (now / 500) % 2));
+  statusBg(g, f.status, f.status == CS_NEEDS_YOU && (now / 500) % 2, g->width(), g->height(), cx, c.Y(233),
+           true);
 
   g->fillArc(cx, c.Y(233), CD_RING_OUT, CD_RING_IN, 0, 360, CD_TRACK);
   ring(g, cx, c.Y(233), CD_RING_OUT, CD_RING_IN, f.ctxPct, ctxColor(f.ctxPct));
 
   const char *w = claudeStatusText(f.status);
-  txtC(g, w, cx, c.Y(66), fitSize(w, 224, 4, 3), stColor(f.status));
+  txtCS(g, w, cx, c.Y(66), fitSize(w, 224, 4, 3), stWord(f.status));
 
   char big[8];
   snprintf(big, sizeof(big), f.ctxPct >= 0 ? "%s%%" : "%s", f.ctxBig);
-  txtC(g, big, cx, c.Y(112), fitSize(big, 280, 11, 6), CD_TEXT);
-  txtC(g, "CONTEXT USED", cx, c.Y(200), 2, CD_DIM);
+  txtCS(g, big, cx, c.Y(112), fitSize(big, 280, 11, 6), CD_TEXT);
+  txtCS(g, "CONTEXT USED", cx, c.Y(200), 2, CD_TEXT);
 
   int ground = c.Y(318);
   int top = actingPet(g, sc, f.status, now, cx, ground, 84, 64);
@@ -274,16 +356,16 @@ static void pageGlance(const Ctx &c, const ClaudeFrame &f, const ClaudeScene &sc
   } else {
     snprintf(line, sizeof(line), "%s", f.dur);
   }
-  txtC(g, line, cx, c.Y(332), fitSize(line, 250, 4, 3), col);
+  txtCS(g, line, cx, c.Y(332), fitSize(line, 250, 4, 3), col);
+  waitBadge(c, f.nWaiting);
   pageDots(c, 0);
 }
 
 static void cardBase(const Ctx &c, const ClaudeFrame &f, int cx0, int cy0, bool roundPanel) {
-  uint16_t bg = stBg(f.status, false);
-  c.g->fillScreen(0x0000);
-  if (roundPanel) c.g->fillCircle(cx0, cy0, 233, bg);
-  else c.g->fillRect(0, 0, 2 * cx0, 2 * cy0, bg);
+  (void)roundPanel;  // the corners of a round panel are off the glass anyway
+  statusBg(c.g, f.status, false, 2 * cx0, 2 * cy0, c.X(233), c.Y(233), false);
   cardHeader(c, f);
+  waitBadge(c, f.nWaiting);
 }
 
 // one limit: label and big percentage on a line, a thick bar, the reset under it

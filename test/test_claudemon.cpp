@@ -207,6 +207,18 @@ TEST(claude, frame_shows_context_used_and_left) {
   CHECK_EQ(std::string(f.lines), std::string("+156 -23"));
 }
 
+TEST(claude, the_waiting_badge_counts_the_other_sessions) {
+  ClaudeMon m;
+  m.feed("v=1 st=1 n=3 wt=2", 1000);
+  CHECK_EQ(m.d.waiting, 2);
+  ClaudeFrame f;
+  claudeBuildFrame(m, view(0), 1000, f);
+  CHECK_EQ(f.nWaiting, 2);
+  m.feed("v=1 st=1 n=3", 2000);  // missing = unknown = no badge
+  claudeBuildFrame(m, view(0), 2000, f);
+  CHECK_EQ(f.nWaiting, 0);
+}
+
 TEST(claude, frame_computes_the_percentage_when_it_is_missing) {
   ClaudeMon m;
   m.feed("v=1 st=1 ctx=50000 max=200000", 0);

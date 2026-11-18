@@ -90,6 +90,9 @@ static const Scene SCENES[] = {
   { "context-working", 0,
     "v=1 st=1 ctx=64230 max=200000 pct=32 cost=184 dur=1520 api=410 la=86 lr=12 h5=18 r5=12600 w7=35 r7=302400 "
     "n=1 model=Opus%204.5 proj=TamaPoke name=Claude%20usage%20display eff=high", 25, 0, 13, "", 24 },
+  { "context-working-waiting", 0,
+    "v=1 st=1 ctx=64230 max=200000 pct=32 cost=184 dur=1520 api=410 la=86 lr=12 h5=18 r5=12600 w7=35 r7=302400 "
+    "n=3 wt=1 model=Opus%204.5 proj=TamaPoke name=Claude%20usage%20display eff=high", 25, 0, 13, "", 0 },
   { "context-your-turn", 0,
     "v=1 st=2 ctx=142800 max=200000 pct=71 cost=612 dur=5340 api=1460 la=420 lr=88 h5=46 r5=8040 w7=52 r7=273600 "
     "n=2 model=Opus%204.5 proj=TamaPoke name=Claude%20usage%20display eff=high", 4, 3, 19, "", 30 },
@@ -110,7 +113,7 @@ static const Scene SCENES[] = {
     25, 0, 13, "", 0 },
   { "session", 2,
     "v=1 st=1 ctx=142800 max=200000 pct=71 cost=612 dur=5340 api=1460 la=420 lr=88 h5=46 r5=8040 w7=52 r7=273600 "
-    "n=2 model=Opus%204.5 proj=TamaPoke name=Claude%20usage%20display eff=high", 25, 0, 13, "Pikachu is hungry", 0 },
+    "n=2 wt=1 model=Opus%204.5 proj=TamaPoke name=Claude%20usage%20display eff=high", 25, 0, 13, "Pikachu is hungry", 0 },
   { "waiting", 0, nullptr, 25, 0, 13, "", 0 },
 };
 

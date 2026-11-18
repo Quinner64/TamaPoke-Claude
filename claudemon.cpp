@@ -15,6 +15,7 @@ void ClaudeData::clear() {
   h5ResetS = w7ResetS = spResetS = -1;
   spUsedCents = spLimitCents = -1;
   sessions = 0;
+  waiting = 0;
 }
 
 static int hexVal(char c) {
@@ -89,6 +90,7 @@ bool claudeParse(const char *p, ClaudeData &out) {
     else if (KEY("spu")) out.spUsedCents = toInt(v, ve);
     else if (KEY("spl")) out.spLimitCents = toInt(v, ve);
     else if (KEY("n")) { int32_t n = toInt(v, ve); out.sessions = (int16_t)(n < 0 ? 0 : n > 99 ? 99 : n); }
+    else if (KEY("wt")) { int32_t n = toInt(v, ve); out.waiting = (int16_t)(n < 0 ? 0 : n > 99 ? 99 : n); }
     else if (KEY("model")) decodeText(v, ve, out.model, sizeof(out.model));
     else if (KEY("proj")) decodeText(v, ve, out.project, sizeof(out.project));
     else if (KEY("name")) decodeText(v, ve, out.session, sizeof(out.session));
@@ -283,6 +285,7 @@ void claudeBuildFrame(const ClaudeMon &m, const ClaudeView &v, uint32_t nowMs, C
   else
     copyText(f.lines, sizeof(f.lines), "--");
   f.nSessions = d.sessions;
+  f.nWaiting = d.waiting;
   if (d.sessions > 1) snprintf(f.sessions, sizeof(f.sessions), "%d sessions open", d.sessions);
   copyText(f.effort, sizeof(f.effort), d.effort);
 }

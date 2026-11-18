@@ -50,6 +50,7 @@ struct ClaudeData {
   int16_t spPct;              // spend limit (behind a Claude apps gateway)
   int32_t spResetS, spUsedCents, spLimitCents;
   int16_t sessions;           // Claude Code sessions open on the PC
+  int16_t waiting;            // other sessions waiting on you (turn done / asking): the badge
   char model[24];
   char project[28];
   char session[32];
@@ -125,6 +126,7 @@ struct ClaudeFrame {
   char cost[12], api[12], lines[24];
   char sessions[24];     // "2 sessions open" (empty for one)
   int16_t nSessions;
+  int16_t nWaiting;      // other sessions waiting on you: "+2 WAITING" badge when > 0
   char effort[8];
   char wait1[32], wait2[32];
   const uint8_t *petThumb;  // gallery thumbnail of the pet (session card), may be null

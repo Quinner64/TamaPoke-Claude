@@ -136,6 +136,19 @@ class TestBuildState(unittest.TestCase):
         self.assertEqual(state["st"], cm.ST_NEEDS_YOU)
         self.assertEqual(state["n"], 3)
 
+    def test_counts_the_other_sessions_waiting_on_you(self):
+        n = self.NOW
+        state = cm.build_state(n, {"a": sess(n - 9, {"model": "A"}, "done"),
+                                   "b": sess(n - 20, {"model": "B"}, "working"),
+                                   "c": sess(n - 30, {"model": "C"}, "needs_you"),
+                                   "d": sess(n - 3, {"model": "D"}, "done"),
+                                   "e": sess(n - 4, {"model": "E"}, "idle")})
+        self.assertEqual(state["model"], "C")  # needs you is shown...
+        self.assertEqual(state["wt"], 2)       # ...and the two finished turns wait behind it
+        self.assertIn(" wt=2", cm.encode_line(state))
+        alone = cm.build_state(n, {"a": sess(n - 9, {}, "done")})
+        self.assertEqual(alone["wt"], 0)
+
     def test_working_beats_done_and_newest_wins_a_tie(self):
         n = self.NOW
         state = cm.build_state(n, {"a": sess(n - 9, {"model": "A"}, "done"),
