@@ -71,17 +71,51 @@ computer except over the USB cable to the board. The protocol is described in
 ## Setup
 
 You need Python 3 and the board flashed with this firmware.
+The dashboard is part of the normal build (see the
+[README](README.md#ide-setup--build)). There is no flag to set.
 
-**1. Flash the firmware** as usual (see the [README](README.md#ide-setup--build)).
-The dashboard is part of the normal build. There is no flag to set.
+### As a Claude Code plugin (easiest, and the same on every computer)
 
-**2. Install pyserial** on the work computer:
+The bridge ships as the `tamapoke-monitor` plugin in this repository. The
+plugin brings the hooks and starts the bridge in the background with each
+Claude Code session, so there is nothing to leave running by hand. On each
+computer:
+
+```bash
+claude plugin marketplace add Quinner64/TamaPoke-Claude
+claude plugin install tamapoke-monitor@tamapoke
+```
+
+(or, inside Claude Code: `/plugin install tamapoke-monitor --marketplace Quinner64/TamaPoke-Claude`).
+Then, in a new session, run **`/tamapoke-monitor:setup`** once. It adds the
+status line (a plugin cannot set one by itself), checks for pyserial and
+offers to install it, and starts the bridge.
+
+| Command | Does |
+|---|---|
+| `/tamapoke-monitor:setup` | One-time setup on this computer |
+| `/tamapoke-monitor:bridge stop` | Frees the USB port, for flashing or `tools/send_sd.py` |
+| `/tamapoke-monitor:bridge start` / `status` / `demo` | What they say |
+| `/tamapoke-monitor:bridge autostart off` | Stop starting the bridge with each session |
+
+Only one bridge runs at a time, however many sessions you open: it holds a
+lock in `~/.claude/tamapoke/`, and logs to `serve.log` there. The status line
+runs a copy of the bridge kept in `~/.claude/tamapoke/bin/`, refreshed at each
+session start, because the plugin's own folder changes with every update.
+Hooks run through `bash` (Git Bash on Windows, which Claude Code uses anyway).
+To remove it: `claude plugin uninstall tamapoke-monitor@tamapoke`, then
+`python3 plugins/tamapoke-monitor/scripts/claude_monitor.py uninstall` to take
+the status line out again.
+
+### By hand
+
+**1. Install pyserial** on the work computer:
 
 ```bash
 pip install pyserial
 ```
 
-**3. Hook it into Claude Code.** One command adds the status line and hooks to
+**2. Hook it into Claude Code.** One command adds the status line and hooks to
 `~/.claude/settings.json`, after saving a backup next to it:
 
 ```bash
@@ -92,7 +126,7 @@ If you already had a status line, it keeps showing. The bridge runs it and
 prints its output in place of its own. Then restart Claude Code, or open a new
 session.
 
-**4. Plug the board in and leave the bridge running:**
+**3. Plug the board in and leave the bridge running:**
 
 ```bash
 python3 tools/claude_monitor.py serve
@@ -114,7 +148,7 @@ To see the screens on the board without Claude Code:
 python3 tools/claude_monitor.py demo
 ```
 
-To undo step 3 (your previous status line comes back):
+To undo step 2 (your previous status line comes back):
 
 ```bash
 python3 tools/claude_monitor.py uninstall
@@ -182,5 +216,6 @@ Python that ran it, so they keep working from any folder.
 | `claudeui.h` / `claudeui.cpp` | Draws the pages in the game's look: pixel font, cream cards, stat bars, text box. |
 | `scene.h` / `scene.cpp`, `pmddraw.h` | The game's biome scene and PMD sprite drawing, moved out of `TamaPoke.ino` unchanged so the game and the dashboard share them. |
 | `TamaPoke.ino` | Serial `CLAUDE` lines, gestures, auto-open, wake-ups and chimes (search for "Claude dashboard"). |
-| `tools/claude_monitor.py` | PC bridge: `install`, `serve`, `status`, `demo`, `uninstall` (and `statusline` / `hook`, which Claude Code runs). Tests: `test/test_claude_monitor.py`. |
+| `plugins/tamapoke-monitor/` | The Claude Code plugin: `scripts/claude_monitor.py` is the PC bridge (`install`, `serve`, `status`, `demo`, `uninstall`, `stop`, `autostart`, and `statusline` / `hook` / `ensure`, which Claude Code runs); `hooks/hooks.json`, the `setup` and `bridge` skills, and `scripts/run.sh`, which finds a Python for the hooks. `.claude-plugin/marketplace.json` at the repo root lists it. Tests: `test/test_claude_monitor.py`. |
+| `tools/claude_monitor.py` | Wrapper that runs the plugin's bridge, so the old commands keep working. |
 | `tools/claude_preview/` | Renders the screens on a PC from the firmware code and the real sprites: `build.sh` makes the sample images and GIFs in `docs/claude-monitor/`, and `build.sh --live` renders what your own data looks like right now. |

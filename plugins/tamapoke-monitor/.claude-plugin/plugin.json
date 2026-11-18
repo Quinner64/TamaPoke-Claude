@@ -1,0 +1,12 @@
+{
+  "name": "tamapoke-monitor",
+  "displayName": "TamaPoke Claude monitor",
+  "description": "Shows your Claude Code usage (context, plan limits, cost, working / needs you) on a TamaPoke board over USB. The bridge starts by itself with each session; run /tamapoke-monitor:setup once per computer.",
+  "author": {
+    "name": "Quinner64"
+  },
+  "homepage": "https://github.com/Quinner64/TamaPoke-Claude/blob/main/CLAUDE_MONITOR.md",
+  "repository": "https://github.com/Quinner64/TamaPoke-Claude",
+  "license": "MIT",
+  "keywords": ["tamapoke", "esp32", "status", "usage", "dashboard"]
+}

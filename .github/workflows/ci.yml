@@ -88,7 +88,7 @@ jobs:
         with:
           python-version: "3.x"
       - run: pip install ruff
-      - run: ruff check tools/
+      - run: ruff check tools/ plugins/
 
   tests:
     name: Game-logic tests (host, no board)

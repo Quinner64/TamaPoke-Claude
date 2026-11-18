@@ -1,0 +1,14 @@
+{
+  "name": "tamapoke",
+  "description": "Claude Code plugins for the TamaPoke board",
+  "owner": {
+    "name": "Quinner64"
+  },
+  "plugins": [
+    {
+      "name": "tamapoke-monitor",
+      "source": "./plugins/tamapoke-monitor",
+      "description": "Shows your Claude Code usage (context, plan limits, cost, working / needs you) on a TamaPoke board over USB."
+    }
+  ]
+}

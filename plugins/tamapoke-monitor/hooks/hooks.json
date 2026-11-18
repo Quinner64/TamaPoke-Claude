@@ -1,0 +1,34 @@
+{
+  "description": "TamaPoke Claude monitor: record what Claude is doing for the board, and start the USB bridge with each session.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook", "async": true},
+          {"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" ensure", "async": true}
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook", "async": true}]}
+    ],
+    "PermissionRequest": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook", "async": true}]}
+    ],
+    "PostToolUse": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook", "async": true}]}
+    ],
+    "Notification": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook", "async": true}]}
+    ],
+    "Stop": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook", "async": true}]}
+    ],
+    "StopFailure": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook", "async": true}]}
+    ],
+    "SessionEnd": [
+      {"hooks": [{"type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/scripts/run.sh\" hook", "async": true}]}
+    ]
+  }
+}

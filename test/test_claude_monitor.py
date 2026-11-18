@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for tools/claude_monitor.py (the Claude Code -> board bridge).
+"""Tests for plugins/tamapoke-monitor/scripts/claude_monitor.py (the Claude Code -> board bridge).
 
   python3 test/test_claude_monitor.py
 
@@ -18,7 +18,7 @@ from unittest import mock
 from urllib.parse import unquote
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "tools"))
+sys.path.insert(0, os.path.join(ROOT, "plugins", "tamapoke-monitor", "scripts"))
 import claude_monitor as cm  # noqa: E402
 
 # the example from Claude Code's status line documentation, trimmed
@@ -248,6 +248,25 @@ class TestInstall(unittest.TestCase):
         cm.install_into(settings, "p claude_monitor.py statusline", "p claude_monitor.py hook", config)
         self.assertEqual(cm.uninstall_from(settings, config), {})
 
+    def test_plugin_install_sets_only_the_status_line_and_drops_by_hand_hooks(self):
+        settings, config = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]}}, {}
+        cm.install_into(settings, "p claude_monitor.py statusline", "p claude_monitor.py hook", config)
+        cm.install_into(settings, "q bin/claude_monitor.py statusline", None, config)
+        self.assertEqual(settings["statusLine"]["command"], "q bin/claude_monitor.py statusline")
+        self.assertEqual(settings["hooks"], {"Stop": [{"hooks": [{"type": "command", "command": "say done"}]}]})
+        self.assertNotIn("chain", config)
+
+    def test_plugin_install_command_points_the_status_line_at_the_stable_copy(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"TAMAPOKE_CLAUDE_DIR": tmp}):
+            path = Path(tmp) / "settings.json"
+            with redirect_stdout(io.StringIO()):
+                cm.main(["install", "--plugin", "--settings", str(path)])
+            data = json.loads(path.read_text(encoding="utf-8"))
+            self.assertIn(cm.stable_script().resolve().as_posix(), data["statusLine"]["command"])
+            self.assertNotIn("hooks", data)
+            self.assertTrue(cm.stable_script().exists())
+            self.assertTrue((Path(tmp) / "python").exists())
+
     def test_install_command_edits_a_settings_file_with_a_backup(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"TAMAPOKE_CLAUDE_DIR": tmp}):
             path = Path(tmp) / "settings.json"
@@ -313,6 +332,32 @@ class TestCommands(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"TAMAPOKE_CLAUDE_DIR": tmp}):
             for junk in ("", "[]", "{", '{"hook_event_name": 5}'):
                 self.run_cmd(["hook"], junk)
+
+
+class TestSingleBridge(unittest.TestCase):
+    def test_only_one_serve_holds_the_lock(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"TAMAPOKE_CLAUDE_DIR": tmp}):
+            self.assertFalse(cm.serve_running())
+            held = cm.try_lock()
+            self.assertIsNotNone(held)
+            try:
+                self.assertIsNone(cm.try_lock())
+                self.assertTrue(cm.serve_running())
+            finally:
+                cm.release_lock(held)
+            self.assertFalse(cm.serve_running())
+
+    def test_ensure_with_autostart_off_starts_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"TAMAPOKE_CLAUDE_DIR": tmp}), \
+                mock.patch.object(cm, "spawn_serve") as spawn:
+            with redirect_stdout(io.StringIO()):
+                cm.main(["autostart", "off"])
+            out = io.StringIO()
+            with redirect_stdout(out):
+                cm.main(["ensure"])
+            spawn.assert_not_called()
+            self.assertEqual(out.getvalue(), "")  # SessionStart output would reach Claude
+            self.assertTrue(cm.stable_script().exists())
 
 
 if __name__ == "__main__":
