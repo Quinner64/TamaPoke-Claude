@@ -1,9 +1,11 @@
-// Claude dashboard screens, drawn in the game's own look: the pet stands in its
-// biome and reacts to what Claude is doing, the context window reads like an HP
-// bar, the plan limits are a stat card and the session is a trainer-style card.
-// Everything shown comes pre-formatted in a ClaudeFrame (claudemon.cpp); this
-// file only lays it out. tools/claude_preview/ compiles it on a PC against the
-// real Arduino_GFX to make the images in docs/claude-monitor/.
+// Claude dashboard screens, laid out to be read from across a desk: a dark
+// screen tinted by what Claude is doing, one big status word, and only a few
+// numbers per page, drawn large. Page 0 wraps the screen in a ring that fills as
+// the context window is used, with the percentage in the middle and your pet
+// acting out the status below it. Everything shown comes pre-formatted in a
+// ClaudeFrame (claudemon.cpp); this file only lays it out.
+// tools/claude_preview/ compiles it on a PC against the real Arduino_GFX to make
+// the images in docs/claude-monitor/.
 #include <Arduino.h>
 #include "Arduino_GFX_Library.h"
 #include "claudeui.h"
@@ -11,19 +13,21 @@
 #include "pmddraw.h"
 
 // the game's palette (UI_* in species.h, which is not included here: it carries every fallback sprite)
-static const uint16_t CC_BG_DAY = 0xF77C;     // UI_BG_DAY   #f2efe1
-static const uint16_t CC_BG_NIGHT = 0x10C5;   // UI_BG_NIGHT #141828
-static const uint16_t CC_INK = 0x2946;        // UI_INK      #2a2a36
-static const uint16_t CC_INK_NIGHT = 0xDEFE;  // UI_INK_NIGHT
-static const uint16_t CC_TRACK = 0xDE97;      // UI_TRACK    #d8d2bd
-static const uint16_t CC_OK = 0x5DCD;         // UI_BAR_OK   #58b868
-static const uint16_t CC_WARN = 0xED07;       // UI_BAR_WARN #e8a23c
-static const uint16_t CC_BAD = 0xEA87;        // UI_BAR_BAD  #e8503a
+static const uint16_t CC_INK = 0x2946;    // UI_INK      #2a2a36
+static const uint16_t CC_BAD = 0xEA87;    // UI_BAR_BAD  #e8503a
 static const uint16_t CC_WHITE = 0xFFFF;
-static const uint16_t CC_INK_K = 0x18C4;      // sprite outline ink
-static const uint16_t CC_DIM = C565(0x8a, 0x84, 0x76);       // secondary text on cream
-static const uint16_t CC_DIM_NIGHT = C565(0x8a, 0x92, 0xb0);  // secondary text on the night panel
-static const uint16_t CC_BLUE = C565(0x4f, 0x93, 0xc4);       // "working"
+static const uint16_t CC_INK_K = 0x18C4;  // sprite outline ink
+
+// the dashboard's own colours: bright on dark, so they carry across a room
+static const uint16_t CD_TEXT = 0xFFFF;
+static const uint16_t CD_DIM = C565(0xa0, 0xa6, 0xb8);
+static const uint16_t CD_TRACK = C565(0x34, 0x38, 0x46);
+static const uint16_t CD_GREEN = C565(0x5c, 0xe0, 0x70);
+static const uint16_t CD_YELLOW = C565(0xff, 0xc8, 0x3c);
+static const uint16_t CD_RED = C565(0xff, 0x5a, 0x48);
+static const uint16_t CD_BLUE = C565(0x5a, 0xb0, 0xff);
+static const uint16_t CD_ORANGE = C565(0xff, 0x96, 0x3c);
+static const uint16_t CD_GREY = C565(0x9a, 0xa2, 0xc0);
 
 namespace {
 // layout coordinates are those of the 466 px design (centre 233, 233)
@@ -46,8 +50,15 @@ static void txt(Arduino_GFX *g, const char *s, int x, int y, int size, uint16_t 
   g->print(s);
 }
 
+// centred on cx (the font's trailing column is left out, so it is really centred)
 static void txtC(Arduino_GFX *g, const char *s, int cx, int y, int size, uint16_t col) {
-  txt(g, s, cx - tw(s, size) / 2, y, size, col);
+  txt(g, s, cx - (tw(s, size) - size) / 2, y, size, col);
+}
+
+// the largest size from `size` down to `minSize` at which `s` fits in `w` px
+static int fitSize(const char *s, int w, int size, int minSize) {
+  while (size > minSize && tw(s, size) - size > w) size--;
+  return size;
 }
 
 // cuts `s` to `maxChars`, ending in ".." when it had to
@@ -60,39 +71,66 @@ static void fit(const char *s, int maxChars, char *out, size_t n) {
   }
 }
 
-// --- pieces ----------------------------------------------------------------
+// --- status: colour, background tint, word ---------------------------------
 
-// a stat bar like the game's needs bars (rounded track, coloured fill)
-static void bar(Arduino_GFX *g, int x, int y, int w, int h, int pct, uint16_t fill) {
-  g->fillRoundRect(x, y, w, h, 4, CC_TRACK);
-  if (pct < 0) return;
-  if (pct > 100) pct = 100;
-  int fw = (w - 4) * pct / 100;
-  if (fw > 0) g->fillRoundRect(x + 2, y + 2, fw, h - 4, 3, fill);
+static uint16_t stColor(uint8_t st) {
+  switch (st) {
+    case CS_WORKING: return CD_BLUE;
+    case CS_DONE: return CD_GREEN;
+    case CS_NEEDS_YOU: return CD_RED;
+    case CS_ERROR: return CD_ORANGE;
+    default: return CD_GREY;
+  }
 }
 
-// the game's text box: white, a double ink border, and the "more" arrow
-static void dialog(Arduino_GFX *g, int x, int y, int w, int h, const char *l1, const char *l2, uint16_t col,
-                   uint16_t arrow) {
-  g->fillRoundRect(x, y, w, h, 8, CC_WHITE);
-  g->drawRoundRect(x, y, w, h, 8, CC_INK);
-  g->drawRoundRect(x + 1, y + 1, w - 2, h - 2, 7, CC_INK);
-  g->drawRoundRect(x + 4, y + 4, w - 8, h - 8, 5, CC_TRACK);
-  int inner = w - 26;
-  bool two = l2 && l2[0];
-  int s1 = tw(l1, 2) <= inner ? 2 : 1;
-  int y1 = two ? y + 9 : y + (h - 8 * s1) / 2;
-  txt(g, l1, x + 12, y1, s1, col);
-  if (two) {
-    int s2 = tw(l2, 2) <= inner ? 2 : 1;
-    txt(g, l2, x + 12, y + 27 + (2 - s2) * 4, s2, col);
+// the whole screen is tinted by the status: the colour reads from far away
+// even when the words don't. NEEDS YOU flashes brighter on the animated pages.
+static uint16_t stBg(uint8_t st, bool flash) {
+  switch (st) {
+    case CS_WORKING: return C565(0x06, 0x16, 0x30);
+    case CS_DONE: return C565(0x06, 0x24, 0x12);
+    case CS_NEEDS_YOU: return flash ? C565(0x86, 0x14, 0x10) : C565(0x42, 0x08, 0x08);
+    case CS_ERROR: return C565(0x3a, 0x16, 0x04);
+    default: return C565(0x10, 0x12, 0x1a);
   }
-  if (arrow) g->fillTriangle(x + w - 21, y + h - 15, x + w - 11, y + h - 15, x + w - 16, y + h - 9, arrow);
+}
+
+// context used: green under half, yellow, red from 80 %
+static uint16_t ctxColor(int pct) { return pct < 0 ? CD_DIM : pct < 50 ? CD_GREEN : pct < 80 ? CD_YELLOW : CD_RED; }
+
+// plan limits: white while comfortable, yellow from 70 %, red from 90 %
+static uint16_t limitText(int pct) { return pct < 0 ? CD_DIM : pct >= 90 ? CD_RED : pct >= 70 ? CD_YELLOW : CD_TEXT; }
+static uint16_t limitFill(int pct) { return pct >= 90 ? CD_RED : pct >= 70 ? CD_YELLOW : CD_GREEN; }
+
+// --- pieces ----------------------------------------------------------------
+
+static void bar(Arduino_GFX *g, int x, int y, int w, int h, int pct, uint16_t fill) {
+  g->fillRoundRect(x, y, w, h, h / 2, CD_TRACK);
+  if (pct < 0) return;
+  if (pct > 100) pct = 100;
+  int fw = w * pct / 100;
+  if (fw >= h) g->fillRoundRect(x, y, fw, h, h / 2, fill);
+  else if (fw > 0) g->fillRect(x + 2, y + 2, fw, h - 4, fill);
+}
+
+// an arc clockwise from 12 o'clock over `pct` of the circle
+static void ring(Arduino_GFX *g, int cx, int cy, int r1, int r2, int pct, uint16_t col) {
+  if (pct <= 0) return;
+  if (pct >= 100) {
+    g->fillArc(cx, cy, r1, r2, 0, 360, col);
+    return;
+  }
+  float end = 270.0f + 3.6f * pct;  // Arduino_GFX angles: 0 = 3 o'clock, clockwise
+  if (end <= 360.0f) g->fillArc(cx, cy, r1, r2, 270, end, col);
+  else {
+    g->fillArc(cx, cy, r1, r2, 270, 360, col);
+    g->fillArc(cx, cy, r1, r2, 0, end - 360.0f, col);
+  }
 }
 
 // page markers: a little pokeball per page, the current one in colour
 static void pokeball(Arduino_GFX *g, int x, int y, int r, bool on) {
-  uint16_t top = on ? CC_BAD : C565(0xb8, 0xb2, 0xa4), bottom = on ? CC_WHITE : C565(0xe6, 0xe1, 0xd4);
+  uint16_t top = on ? CC_BAD : C565(0x6a, 0x6e, 0x7c), bottom = on ? CC_WHITE : C565(0xa8, 0xac, 0xb8);
   g->fillCircle(x, y, r, CC_INK);
   g->fillCircle(x, y, r - 1, bottom);
   g->fillArc(x, y, r - 1, 1, 180, 360, top);
@@ -103,28 +141,13 @@ static void pokeball(Arduino_GFX *g, int x, int y, int r, bool on) {
 
 static void pageDots(const Ctx &c, int page) {
   for (int i = 0; i < CLAUDE_PAGES; i++)
-    pokeball(c.g, c.X(233 + (i - 1) * 24), c.Y(440), i == page ? 7 : 6, i == page);
+    pokeball(c.g, c.X(233 + (i - 1) * 26), c.Y(398), i == page ? 8 : 6, i == page);
 }
 
-static uint16_t statusInk(uint8_t st) {
-  return st == CS_NEEDS_YOU || st == CS_ERROR ? CC_BAD : CC_INK;
-}
-
-static uint16_t statusArrow(uint8_t st) {
-  switch (st) {
-    case CS_WORKING: return CC_BLUE;
-    case CS_DONE: return CC_OK;
-    case CS_NEEDS_YOU: return CC_BAD;
-    case CS_ERROR: return CC_BAD;
-    default: return CC_DIM;
-  }
-}
-
-// the status text box every page ends with
-static void statusBox(const Ctx &c, const ClaudeFrame &f, bool blink) {
-  const char *l1, *l2;
-  claudeStatusLines(f.status, &l1, &l2);
-  dialog(c.g, c.X(95), c.Y(372), 276, 48, l1, l2, statusInk(f.status), blink ? 0 : statusArrow(f.status));
+// the status word along the top of the card pages
+static void cardHeader(const Ctx &c, const ClaudeFrame &f) {
+  const char *w = claudeStatusText(f.status);
+  txtC(c.g, w, c.X(233), c.Y(46), fitSize(w, 190, 3, 2), stColor(f.status));
 }
 
 // gallery thumbnail (w, h, palCount, pal[], idx[]; 0xFF = transparent), cropped to
@@ -161,26 +184,26 @@ static void drawThumb(Arduino_GFX *g, const uint8_t *b, int cx, int cy, int px) 
   }
 }
 
-// The pet on its field, acting out Claude's status. Returns the top of the sprite.
+// The pet acting out Claude's status, feet on `ground`. Returns the top of the sprite.
 //   working: paces back and forth      your turn: poses now and then
-//   needs you: nods at you, with "!"   error: hurt     idle / waiting: sleeps
-static int fieldPet(Arduino_GFX *g, const ClaudeScene &sc, uint8_t st, uint32_t now, int x, int ground) {
+//   needs you: nods at you             error: hurt     idle / waiting: sleeps
+static int actingPet(Arduino_GFX *g, const ClaudeScene &sc, uint8_t st, uint32_t now, int x, int ground,
+                     int maxPx, int pace) {
   if (sc.pet && sc.pet->loaded) {
     const PmdMon &m = *sc.pet;
     const PmdAct &idle = m.acts[PMD_IDLE];
     int tall = idle.base ? idle.base : (idle.h ? idle.h : 40);
-    int maxS = 140 / tall;  // about 140 px of sky between the numbers and the ground
+    int maxS = maxPx / tall;
     if (maxS < 1) maxS = 1;
     if (maxS > 3) maxS = 3;
     uint8_t act = PMD_IDLE;
     uint32_t t = now;
-    if (sc.asleep || st == CS_IDLE) act = PMD_SLEEP;
-    else if (st == CS_WORKING && m.has(PMD_WALKL) && m.has(PMD_WALKR)) {
-      // 105 px each way at the game's walking speed (30 px/s)
-      const uint32_t lap = 7000;
+    if (sc.asleep || st == CS_IDLE || st == CS_NONE) act = PMD_SLEEP;
+    else if (st == CS_WORKING && pace > 0 && m.has(PMD_WALKL) && m.has(PMD_WALKR)) {
+      const uint32_t lap = (uint32_t)pace * 2 * 1000 / 30;  // the game's walking speed, 30 px/s
       uint32_t ph = now % lap;
       bool right = ph < lap / 2;
-      x += (int)((right ? ph : lap - ph) * 105 / (lap / 2)) - 52;
+      x += (int)((right ? ph : lap - ph) * (2 * pace) / (lap / 2)) - pace;
       act = right ? PMD_WALKR : PMD_WALKL;
     }
     else if (st == CS_NEEDS_YOU) act = PMD_NOD;
@@ -196,166 +219,156 @@ static int fieldPet(Arduino_GFX *g, const ClaudeScene &sc, uint8_t st, uint32_t 
     return pmdDraw(g, m, act, x, ground, t, true, false, (uint8_t)maxS, CC_INK_K);
   }
   if (sc.thumb) {
-    drawThumb(g, sc.thumb, x, ground - 44, 88);
-    return ground - 88;
+    drawThumb(g, sc.thumb, x, ground - maxPx / 2, maxPx);
+    return ground - maxPx;
   }
   return ground;
 }
 
 // --- pages -----------------------------------------------------------------
 
-#define CC_GROUND 266  // the pet's feet on the field pages
-#define CC_PANEL 276   // top of the cream panel under the field
+#define CD_RING_OUT 229  // the context ring on page 0
+#define CD_RING_IN 205
 
-static void fieldBase(const Ctx &c, const ClaudeScene &sc, uint32_t now, int W, int H, const char *title) {
-  sceneDraw(c.g, W, H, sc.biome, now, sc.night, sc.hour);
-  txtC(c.g, title, c.X(233), c.Y(30), 2, sc.night ? CC_INK_NIGHT : CC_INK);
-}
-
-static void panel(const Ctx &c, const ClaudeScene &sc, int W, int H) {
-  c.g->fillRect(0, c.Y(CC_PANEL), W, H - c.Y(CC_PANEL), sc.night ? CC_BG_NIGHT : CC_BG_DAY);
-}
-
-// page 0: context window as the pet's HP
-static void pageField(const Ctx &c, const ClaudeFrame &f, const ClaudeScene &sc, uint32_t now, int W, int H) {
+// page 0, the one to glance at: status, context window, 5-hour limit
+static void pageGlance(const Ctx &c, const ClaudeFrame &f, const ClaudeScene &sc, uint32_t now) {
   Arduino_GFX *g = c.g;
-  uint16_t sky = sc.night ? CC_INK_NIGHT : CC_INK;
-  fieldBase(c, sc, now, W, H, "CONTEXT");
+  int cx = c.X(233);
+  g->fillScreen(stBg(f.status, f.status == CS_NEEDS_YOU && (now / 500) % 2));
+
+  g->fillArc(cx, c.Y(233), CD_RING_OUT, CD_RING_IN, 0, 360, CD_TRACK);
+  ring(g, cx, c.Y(233), CD_RING_OUT, CD_RING_IN, f.ctxPct, ctxColor(f.ctxPct));
+
+  const char *w = claudeStatusText(f.status);
+  txtC(g, w, cx, c.Y(66), fitSize(w, 224, 4, 3), stColor(f.status));
+
   char big[8];
   snprintf(big, sizeof(big), f.ctxPct >= 0 ? "%s%%" : "%s", f.ctxBig);
-  txtC(g, big, c.X(233), c.Y(52), 6, sky);
+  txtC(g, big, cx, c.Y(112), fitSize(big, 280, 11, 6), CD_TEXT);
+  txtC(g, "CONTEXT USED", cx, c.Y(200), 2, CD_DIM);
 
-  int top = fieldPet(g, sc, f.status, now, c.X(233), c.Y(CC_GROUND));
-  if (top < c.Y(118)) top = c.Y(118);
-  if (f.status == CS_NEEDS_YOU && !sc.asleep) {  // speech bubble with "!"
-    int bx = c.X(268), by = top - 4;
-    g->fillRoundRect(bx, by, 30, 36, 8, CC_WHITE);
-    g->drawRoundRect(bx, by, 30, 36, 8, CC_INK);
-    g->fillTriangle(bx + 4, by + 30, bx + 12, by + 35, bx - 4, by + 44, CC_WHITE);
-    txt(g, "!", bx + 8, by + 7, 3, CC_BAD);
-  } else if (sc.asleep || f.status == CS_IDLE) {
-    txt(g, "Zz", c.X(272), top + 6, 3, sky);
+  int ground = c.Y(318);
+  int top = actingPet(g, sc, f.status, now, cx, ground, 84, 64);
+  if (top < c.Y(226)) top = c.Y(226);
+  if (f.status == CS_NEEDS_YOU && !sc.asleep) {  // "!" bubble
+    int bx = cx + 34, by = top - 6;
+    g->fillRoundRect(bx, by, 28, 34, 8, CC_WHITE);
+    g->fillTriangle(bx + 4, by + 28, bx + 12, by + 33, bx - 4, by + 42, CC_WHITE);
+    txt(g, "!", bx + 7, by + 6, 3, CD_RED);
+  } else if (sc.asleep || f.status == CS_IDLE || f.status == CS_NONE) {
+    txt(g, "Zz", cx + 34, top, 3, CD_DIM);
   }
 
-  panel(c, sc, W, H);
-  uint16_t ink = sc.night ? CC_INK_NIGHT : CC_INK, dim = sc.night ? CC_DIM_NIGHT : CC_DIM;
-  // HP = what is left of the window: green above half, yellow, red under a fifth
-  int hp = f.ctxPct >= 0 ? 100 - f.ctxPct : -1;
-  txt(g, "HP", c.X(80), c.Y(288), 2, ink);
-  bar(g, c.X(112), c.Y(288), 274, 16, hp, hp > 50 ? CC_OK : hp > 20 ? CC_WARN : CC_BAD);
-  txtC(g, f.ctxHp[0] ? f.ctxHp : f.ctxUsed, c.X(233), c.Y(314), f.ctxHp[0] ? 3 : 2, ink);
-  char line[40], model[16];
-  fit(f.model, 12, model, sizeof(model));
-  snprintf(line, sizeof(line), "%s  %s", model, f.dur);
-  txtC(g, line, c.X(233), c.Y(346), 2, dim);
-  statusBox(c, f, (now / 600) % 2);
+  // the 5-hour limit is what runs out first; without plan limits, the session cost
+  char line[24];
+  uint16_t col = CD_TEXT;
+  if (f.h5Pct >= 0) {
+    snprintf(line, sizeof(line), "5H %d%%", f.h5Pct);
+    col = limitText(f.h5Pct);
+  } else if (f.spPct >= 0) {
+    snprintf(line, sizeof(line), "SPEND %d%%", f.spPct);
+    col = limitText(f.spPct);
+  } else {
+    snprintf(line, sizeof(line), "%s", f.cost);
+  }
+  txtC(g, line, cx, c.Y(332), fitSize(line, 250, 4, 3), col);
   pageDots(c, 0);
 }
 
-static void cardBase(const Ctx &c, int cx0, int cy0, bool roundPanel, const char *title) {
+static void cardBase(const Ctx &c, const ClaudeFrame &f, int cx0, int cy0, bool roundPanel) {
+  uint16_t bg = stBg(f.status, false);
   c.g->fillScreen(0x0000);
-  if (roundPanel) c.g->fillCircle(cx0, cy0, 231, CC_BG_DAY);
-  else c.g->fillRect(0, 0, 2 * cx0, 2 * cy0, CC_BG_DAY);
-  if (title[0]) txtC(c.g, title, c.X(233), c.Y(40), 3, CC_INK);
+  if (roundPanel) c.g->fillCircle(cx0, cy0, 233, bg);
+  else c.g->fillRect(0, 0, 2 * cx0, 2 * cy0, bg);
+  cardHeader(c, f);
 }
 
-static void drawThumb(Arduino_GFX *g, const uint8_t *b, int cx, int cy, int px);
-
+// one limit: label and big percentage on a line, a thick bar, the reset under it
 static void limitBlock(const Ctx &c, int y, const char *label, int pct, const char *reset) {
   Arduino_GFX *g = c.g;
-  txt(g, label, c.X(86), c.Y(y + 6), 2, CC_INK);
   char v[8];
   if (pct >= 0) snprintf(v, sizeof(v), "%d%%", pct);
   else snprintf(v, sizeof(v), "--");
-  uint16_t col = pct < 0 ? CC_DIM : pct >= 90 ? CC_BAD : pct >= 70 ? CC_WARN : CC_INK;
-  txt(g, v, c.X(380) - tw(v, 3), c.Y(y), 3, col);
-  bar(g, c.X(86), c.Y(y + 30), 294, 16, pct, pct >= 90 ? CC_BAD : pct >= 70 ? CC_WARN : CC_OK);
-  txt(g, reset[0] ? reset : (pct >= 0 ? "" : "not reported"), c.X(86), c.Y(y + 54), 2, CC_DIM);
+  txt(g, label, c.X(92), c.Y(y + 24), 4, CD_DIM);
+  txt(g, v, c.X(378) - (tw(v, 8) - 8), c.Y(y), 8, limitText(pct));
+  bar(g, c.X(92), c.Y(y + 66), 286, 22, pct, limitFill(pct));
+  const char *r = reset[0] ? reset : (pct >= 0 ? "" : "not reported");
+  txtC(g, r, c.X(235), c.Y(y + 98), fitSize(r, 286, 3, 2), CD_DIM);
 }
 
-// page 1: plan limits as a stat card
+// page 1: plan limits
 static void pageLimits(const Ctx &c, const ClaudeFrame &f, int cx0, int cy0, bool roundPanel) {
   Arduino_GFX *g = c.g;
-  cardBase(c, cx0, cy0, roundPanel, "PLAN LIMITS");
+  cardBase(c, f, cx0, cy0, roundPanel);
   if (f.h5Pct >= 0 || f.w7Pct >= 0) {
-    limitBlock(c, 92, "5 HOURS", f.h5Pct, f.h5Reset);
-    limitBlock(c, 178, "WEEKLY", f.w7Pct, f.w7Reset);
-    if (f.spend[0]) txtC(g, f.spend, c.X(233), c.Y(270), 2, CC_DIM);
-    else if (f.petThumb) drawThumb(g, f.petThumb, c.X(233), c.Y(318), 72);  // the pet keeps an eye on it
+    limitBlock(c, 90, "5H", f.h5Pct, f.h5Reset);
+    limitBlock(c, 230, "WEEK", f.w7Pct, f.w7Reset);
   } else if (f.spPct >= 0) {
-    limitBlock(c, 120, "SPEND", f.spPct, f.spend);
-  } else {
-    txtC(g, "No plan limits", c.X(233), c.Y(116), 2, CC_INK);
-    txtC(g, "reported (API key).", c.X(233), c.Y(138), 2, CC_DIM);
-    txtC(g, "SESSION COST", c.X(233), c.Y(196), 2, CC_DIM);
-    txtC(g, f.cost, c.X(233), c.Y(222), 4, CC_INK);
+    limitBlock(c, 150, "SPEND", f.spPct, f.spend);
+  } else {  // API key: no plan limits, so the money is what counts
+    txtC(g, "SESSION COST", c.X(233), c.Y(140), 3, CD_DIM);
+    txtC(g, f.cost, c.X(233), c.Y(178), fitSize(f.cost, 300, 9, 5), CD_TEXT);
+    txtC(g, "no plan limits (API key)", c.X(233), c.Y(270), 2, CD_DIM);
   }
-  statusBox(c, f, false);
   pageDots(c, 1);
 }
 
-static void cardRow(const Ctx &c, int y, const char *label, const char *value, uint16_t col, int maxChars) {
-  char v[32];
-  fit(value, maxChars, v, sizeof(v));
-  txt(c.g, label, c.X(86), c.Y(y), 2, CC_DIM);
-  txt(c.g, v, c.X(166), c.Y(y), 2, col);
-}
-
-// page 2: the session as a trainer-style card
+// page 2: the session in three numbers
 static void pageSession(const Ctx &c, const ClaudeFrame &f, int cx0, int cy0, bool roundPanel) {
   Arduino_GFX *g = c.g;
-  cardBase(c, cx0, cy0, roundPanel, "");
-  int x = c.X(66), y = c.Y(46), w = 334, h = 304;
-  g->fillRoundRect(x, y, w, h, 14, CC_WHITE);
-  g->fillRoundRect(x, y, w, 34, 14, CC_BAD);  // red band across the top
-  g->fillRect(x, y + 20, w, 14, CC_BAD);
-  g->drawRoundRect(x, y, w, h, 14, CC_INK);
-  g->drawRoundRect(x + 1, y + 1, w - 2, h - 2, 13, CC_INK);
-  pokeball(g, x + 24, y + 17, 9, true);
-  txtC(g, "SESSION CARD", c.X(233) + 8, y + 10, 2, CC_WHITE);
+  cardBase(c, f, cx0, cy0, roundPanel);
+  int cx = c.X(233);
+  txtC(g, "COST", cx, c.Y(90), 2, CD_DIM);
+  txtC(g, f.cost, cx, c.Y(110), fitSize(f.cost, 300, 8, 4), CD_TEXT);
+  txtC(g, "TIME", cx, c.Y(184), 2, CD_DIM);
+  txtC(g, f.dur, cx, c.Y(204), fitSize(f.dur, 300, 6, 3), CD_TEXT);
 
-  char model[24];
-  snprintf(model, sizeof(model), "%s%s%s", f.model, f.effort[0] ? " " : "", f.effort);
-  cardRow(c, 94, "NAME", f.title, CC_INK, 18);
-  cardRow(c, 120, "MODEL", model, CC_INK, 18);
-  cardRow(c, 154, "MONEY", f.cost, CC_INK, 9);
-  cardRow(c, 180, "TIME", f.dur, CC_INK, 9);
-  cardRow(c, 206, "API", f.api, CC_INK, 9);
-  // lines: added in green, removed in red
-  txt(g, "LINES", c.X(86), c.Y(232), 2, CC_DIM);
+  // lines: added in green, removed in red, side by side
   const char *sp = strchr(f.lines, ' ');
   if (sp) {
     char add[12];
     snprintf(add, sizeof(add), "%.*s", (int)(sp - f.lines), f.lines);
-    txt(g, add, c.X(166), c.Y(232), 2, CC_OK);
-    txt(g, sp + 1, c.X(166) + tw(add, 2) + 10, c.Y(232), 2, CC_BAD);
+    const char *del = sp + 1;
+    int gap = 24, wa = tw(add, 4) - 4, wd = tw(del, 4) - 4, x = cx - (wa + gap + wd) / 2;
+    txt(g, add, x, c.Y(266), 4, CD_GREEN);
+    txt(g, del, x + wa + gap, c.Y(266), 4, CD_RED);
+  } else if (f.lines[0]) {
+    txtC(g, f.lines, cx, c.Y(266), 4, CD_TEXT);
+  }
+
+  char model[40], line[64];
+  snprintf(model, sizeof(model), "%s%s%s", f.model, f.effort[0] ? " " : "", f.effort);
+  if (f.nSessions > 1) {
+    char m[sizeof(model)];
+    fit(model, 16, m, sizeof(m));
+    snprintf(line, sizeof(line), "%s - %d open", m, f.nSessions);
   } else {
-    txt(g, f.lines, c.X(166), c.Y(232), 2, CC_INK);
+    fit(model, 24, line, sizeof(line));
   }
-  char open[12];
-  snprintf(open, sizeof(open), "%d", f.nSessions > 0 ? f.nSessions : 1);
-  cardRow(c, 258, "OPEN", open, CC_INK, 9);
-  if (f.petThumb) drawThumb(g, f.petThumb, c.X(334), c.Y(214), 84);
-  if (f.petMsg[0]) {
-    int size = tw(f.petMsg, 2) <= 300 ? 2 : 1;
-    txtC(g, f.petMsg, c.X(233), c.Y(size == 2 ? 296 : 300), size, CC_WARN);
+  txtC(g, line, cx, c.Y(318), 2, CD_DIM);
+  if (f.petMsg[0]) txtC(g, f.petMsg, cx, c.Y(344), fitSize(f.petMsg, 280, 2, 1), CD_YELLOW);
+  else if (f.title[0]) {
+    char t[sizeof(f.title)];
+    fit(f.title, 22, t, sizeof(t));
+    txtC(g, t, cx, c.Y(344), 2, CD_DIM);
   }
-  statusBox(c, f, false);
   pageDots(c, 2);
 }
 
-// no PC: the pet naps on its field until the bridge shows up
-static void pageWait(const Ctx &c, const ClaudeFrame &f, const ClaudeScene &sc, uint32_t now, int W, int H) {
+// no PC: the pet naps until the bridge shows up
+static void pageWait(const Ctx &c, const ClaudeFrame &f, const ClaudeScene &sc, uint32_t now) {
   Arduino_GFX *g = c.g;
-  fieldBase(c, sc, now, W, H, "CLAUDE MONITOR");
+  int cx = c.X(233);
+  g->fillScreen(stBg(CS_NONE, false));
+  txtC(g, "CLAUDE", cx, c.Y(70), 4, CD_GREY);
   ClaudeScene nap = sc;
   nap.asleep = true;
-  int top = fieldPet(g, nap, CS_IDLE, now, c.X(233), c.Y(CC_GROUND));
-  if (top < c.Y(118)) top = c.Y(118);
-  txt(g, "Zz", c.X(272), top + 6, 3, sc.night ? CC_INK_NIGHT : CC_INK);
-  panel(c, sc, W, H);
-  dialog(g, c.X(81), c.Y(296), 304, 50, f.wait1, f.wait2, CC_INK, (now / 600) % 2 ? 0 : CC_DIM);
-  txtC(g, "Swipe up: your pet", c.X(233), c.Y(370), 2, sc.night ? CC_DIM_NIGHT : CC_DIM);
+  int top = actingPet(g, nap, CS_IDLE, now, cx, c.Y(250), 120, 0);
+  if (top < c.Y(130)) top = c.Y(130);
+  txt(g, "Zz", cx + 44, top, 3, CD_DIM);
+  txtC(g, f.wait1, cx, c.Y(280), fitSize(f.wait1, 390, 3, 2), CD_TEXT);
+  txtC(g, f.wait2, cx, c.Y(318), fitSize(f.wait2, 380, 2, 1), CD_DIM);
+  txtC(g, "Swipe up: your pet", cx, c.Y(360), 2, CD_DIM);
 }
 
 void claudeDraw(Arduino_GFX *g, const ClaudeFrame &f, const ClaudeScene &sc, uint32_t nowMs, int16_t cx0,
@@ -365,17 +378,17 @@ void claudeDraw(Arduino_GFX *g, const ClaudeFrame &f, const ClaudeScene &sc, uin
   g->setUTF8Print(false);
 #endif
   Ctx c = { g, cx0 - 233 + f.ox, cy0 - 233 + f.oy };
-  int W = 2 * cx0, H = 2 * cy0;
   switch (f.page) {
-    case 0: pageField(c, f, sc, nowMs, W, H); break;
+    case 0: pageGlance(c, f, sc, nowMs); break;
     case 1: pageLimits(c, f, cx0, cy0, roundPanel); break;
     case 2: pageSession(c, f, cx0, cy0, roundPanel); break;
-    default: pageWait(c, f, sc, nowMs, W, H); break;
+    default: pageWait(c, f, sc, nowMs); break;
   }
-  // a red rim around the whole screen while Claude waits on you: visible from across the room
-  if (f.status == CS_NEEDS_YOU && f.page != CLAUDE_PAGE_WAIT) {
-    if (roundPanel) g->fillArc(cx0, cy0, 232, 226, 0, 360, CC_BAD);
+  // the card pages are static, so NEEDS YOU can't flash there: a thick red rim instead
+  if (f.status == CS_NEEDS_YOU && (f.page == 1 || f.page == 2)) {
+    int W = 2 * cx0, H = 2 * cy0;
+    if (roundPanel) g->fillArc(cx0, cy0, 233, 220, 0, 360, CD_RED);
     else
-      for (int i = 0; i < 6; i++) g->drawRect(i, i, W - 2 * i, H - 2 * i, CC_BAD);
+      for (int i = 0; i < 12; i++) g->drawRect(i, i, W - 2 * i, H - 2 * i, CD_RED);
   }
 }

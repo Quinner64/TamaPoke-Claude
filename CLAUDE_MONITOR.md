@@ -4,9 +4,9 @@ Plug the board into your work computer over USB and it becomes a desk display
 for [Claude Code](https://code.claude.com): how full the context window is,
 how much is left, how long the session has run, your plan's 5-hour and weekly
 limits, the session cost, and whether Claude is working, done, or waiting for
-you. It looks like the rest of the game: your Pokémon stands in its biome and
-reacts to what Claude is doing, the context window is its HP bar, and the
-session is a trainer-style card.
+you. It is laid out to be read from across a desk: the screen is tinted by
+what Claude is doing, and each page shows only a few numbers, drawn large.
+Your Pokémon stays on the main page and acts out what Claude is doing.
 
 ![The dashboard pages](docs/claude-monitor/overview.png)
 
@@ -17,23 +17,22 @@ rendered on a PC (`tools/claude_preview/build.sh`). They are not mock-ups.*
 
 | Screen | Shows |
 |---|---|
-| **Context** | Your Pokémon in its biome, under the sky at the game's hour. Above it, the percent of the context window used. Below it, an **HP bar** for what is left of the window: green above half, yellow, then red under a fifth. Under the bar are tokens left of the window size (`136k/200k`), the model and the session time. |
-| **Plan limits** | A stat card with the **5-hour** and **weekly** limits: bar, percentage and reset countdown for each. The numbers turn amber at 70 % and red at 90 %. With an API key (no plan limits) it shows the session cost instead. Behind a Claude apps gateway it shows your spend limit. |
-| **Session** | A trainer-style **session card**: name, model and effort, MONEY (cost), TIME, API time, LINES added and removed, and how many sessions are OPEN, with your Pokémon. It also says when your Pokémon needs something ("Pikachu is hungry"). |
+| **Main** | The status word, then the percent of the **context window used** in big digits, inside a thick **ring** that fills as the window does: green under half, yellow, then red from 80 %. Below, your Pokémon acting out the status, and the **5-hour limit** (yellow from 70 %, red from 90 %). With an API key it shows the session cost there instead. |
+| **Plan limits** | The **5-hour** and **weekly** limits: big percentage, thick bar and reset countdown for each, in the same colours. With an API key (no plan limits) it shows the session cost instead. Behind a Claude apps gateway it shows your spend limit. |
+| **Session** | **Cost** and **time** in big digits, **lines** added (green) and removed (red), then the model and effort, how many sessions are open, and a note when your Pokémon needs something ("Pikachu is hungry"). |
 
-Every page ends with the game's **text box**, saying what Claude is doing.
-On the Context page your Pokémon acts it out:
+Every page is tinted by what Claude is doing, with the status word at the top,
+so you can tell from across the room:
 
-| Claude | Text box | Your Pokémon |
+| Claude | Screen | Your Pokémon (main page) |
 |---|---|---|
-| working | "Claude is working..." | paces back and forth |
-| finished | "Your turn! / What will you do?" | strikes a pose now and then |
-| waiting for a permission or an answer | "Claude needs you!" in red, with a **red rim** around the whole screen | nods at you, with a "!" bubble |
-| API error (rate limit, ...) | "Claude hit an error!" | looks hurt |
-| quiet | "Claude is resting." | sleeps (Zz) |
+| working | blue, WORKING | paces back and forth |
+| finished | green, YOUR TURN | strikes a pose now and then |
+| waiting for a permission or an answer | red, NEEDS YOU: the main page **flashes**, the other pages get a thick **red rim** | nods at you, with a "!" bubble |
+| API error (rate limit, ...) | orange, ERROR | looks hurt |
+| quiet | grey, IDLE | sleeps (Zz) |
 
-The page markers at the bottom are little Poké Balls. At night (or while your
-Pokémon sleeps in the game) the field uses the game's night palette.
+The page markers at the bottom are little Poké Balls.
 
 With several Claude Code sessions open, the board shows the one that most needs
 you: NEEDS YOU first, then ERROR, WORKING, YOUR TURN, and IDLE. Ties go to the
@@ -43,7 +42,7 @@ session that moved most recently.
 |---|---|---|
 | ![Working](docs/claude-monitor/context-working.gif) | ![Your turn](docs/claude-monitor/context-your-turn.gif) | ![Needs you](docs/claude-monitor/context-needs-you.gif) |
 | ![Plan limits](docs/claude-monitor/limits.png) | ![Plan limits, high](docs/claude-monitor/limits-high.png) | ![Plan limits, API key](docs/claude-monitor/limits-api-key.png) |
-| ![Session card](docs/claude-monitor/session.png) | ![Resting, at night](docs/claude-monitor/context-idle-night.png) | ![Waiting for the PC](docs/claude-monitor/waiting.png) |
+| ![Session](docs/claude-monitor/session.png) | ![Idle](docs/claude-monitor/context-idle-night.png) | ![Waiting for the PC](docs/claude-monitor/waiting.png) |
 
 ## How it works
 
@@ -213,7 +212,7 @@ Python that ran it, so they keep working from any folder.
 | File | What |
 |---|---|
 | `claudemon.h` / `claudemon.cpp` | Protocol parser, countdowns, alerts, and the formatted contents of each frame. Plain logic, tested on the PC (`test/test_claudemon.cpp`). |
-| `claudeui.h` / `claudeui.cpp` | Draws the pages in the game's look: pixel font, cream cards, stat bars, text box. |
+| `claudeui.h` / `claudeui.cpp` | Draws the pages for reading at a distance: status-tinted dark screen, context ring, big pixel-font numbers, the pet. |
 | `scene.h` / `scene.cpp`, `pmddraw.h` | The game's biome scene and PMD sprite drawing, moved out of `TamaPoke.ino` unchanged so the game and the dashboard share them. |
 | `TamaPoke.ino` | Serial `CLAUDE` lines, gestures, auto-open, wake-ups and chimes (search for "Claude dashboard"). |
 | `plugins/tamapoke-monitor/` | The Claude Code plugin: `scripts/claude_monitor.py` is the PC bridge (`install`, `serve`, `status`, `demo`, `uninstall`, `stop`, `autostart`, and `statusline` / `hook` / `ensure`, which Claude Code runs); `hooks/hooks.json`, the `setup` and `bridge` skills, and `scripts/run.sh`, which finds a Python for the hooks. `.claude-plugin/marketplace.json` at the repo root lists it. Tests: `test/test_claude_monitor.py`. |

@@ -39,10 +39,11 @@ test. See **Roadmap**.
 Plugged into your computer over USB, the board doubles as a desk display for
 [Claude Code](https://code.claude.com). It shows context window used and left,
 session time, the plan's 5-hour and weekly limits, the session cost, and whether
-Claude is working, done or waiting for you, with a chime when it needs you. Your
-Pokémon stays on screen in its biome and acts out what Claude is doing; the
-context window is its HP bar. No API key needed: a small PC bridge
-(`tools/claude_monitor.py`) forwards what Claude Code already reports. Setup and
+Claude is working, done or waiting for you, with a chime when it needs you.
+Built to read from across a desk: the screen is tinted by Claude's status, the
+context window is a ring around the edge, and the numbers are big. Your Pokémon
+acts out what Claude is doing. No API key needed: a small PC bridge
+(the `tamapoke-monitor` Claude Code plugin) forwards what Claude Code already reports. Setup and
 details: **[CLAUDE_MONITOR.md](CLAUDE_MONITOR.md)**.
 
 ![Claude dashboard pages](docs/claude-monitor/overview.png)
