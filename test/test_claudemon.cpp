@@ -98,6 +98,17 @@ TEST(claude, link_survives_the_millis_rollover) {
   CHECK(m.alive(0x00000100u));  // 4.3 s later, across the wrap
 }
 
+// loop() reads millis() once at the top, then handles serial: the line is stamped a
+// few ms later than the `now` claudeTick() gets. That used to wrap to ~49 days,
+// so the board declared the PC silent and closed the dashboard every few seconds.
+TEST(claude, a_line_stamped_after_now_keeps_the_link_alive) {
+  ClaudeMon m;
+  m.feed("v=1 st=1", 50000);
+  CHECK(m.alive(49995));
+  CHECK_EQ(m.sinceRxS(49995), 0u);
+  CHECK_EQ(m.sinceRxMs(49995), 0u);
+}
+
 TEST(claude, countdowns_run_down_from_the_receive_time) {
   ClaudeMon m;
   m.feed("v=1 r5=600", 10000);

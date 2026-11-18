@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -154,6 +155,14 @@ class TestBuildState(unittest.TestCase):
         s = sess(n - 5, {"model": "A"}, "working", hook_at=n - cm.WORKING_STALE_S - 10,
                  changed_at=n - cm.WORKING_STALE_S - 10)
         self.assertEqual(cm.build_state(n, {"a": s})["st"], cm.ST_IDLE)
+
+    def test_an_old_error_in_another_session_does_not_hide_the_working_one(self):
+        n = self.NOW
+        err = sess(n - 5, {"model": "B"}, "error", hook_at=n - cm.ERROR_STALE_S - 1)
+        work = sess(n - 5, {"model": "A"}, "working", hook_at=n - 5)
+        self.assertEqual(cm.build_state(n, {"a": work, "b": err})["st"], cm.ST_WORKING)
+        fresh = sess(n - 5, {"model": "B"}, "error", hook_at=n - 10)
+        self.assertEqual(cm.build_state(n, {"a": work, "b": fresh})["st"], cm.ST_ERROR)
 
     def test_without_hooks_moving_numbers_mean_working(self):
         n = self.NOW
@@ -332,6 +341,62 @@ class TestCommands(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"TAMAPOKE_CLAUDE_DIR": tmp}):
             for junk in ("", "[]", "{", '{"hook_event_name": 5}'):
                 self.run_cmd(["hook"], junk)
+
+
+class TestTranscript(unittest.TestCase):
+    def write(self, tmp, lines):
+        p = Path(tmp) / "t.jsonl"
+        p.write_text("\n".join(json.dumps(x) for x in lines) + "\n", encoding="utf-8")
+        return p
+
+    def reply(self, model, inp, cr, cc=0, side=False):
+        return {"type": "assistant", "isSidechain": side, "effort": "medium", "cwd": "C:\\work\\TamaPoke",
+                "timestamp": "2026-11-18T01:00:00Z",
+                "message": {"model": model, "usage": {"input_tokens": inp, "cache_read_input_tokens": cr,
+                                                      "cache_creation_input_tokens": cc, "output_tokens": 50}}}
+
+    def test_context_model_and_time_from_the_last_main_reply(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            start = {"type": "user", "timestamp": "2026-11-18T00:00:00Z"}
+            p = self.write(tmp, [start, self.reply("claude-opus-5-5", 4, 300000, 19),
+                                 self.reply("claude-haiku-5-5", 1, 5000, side=True),
+                                 {"type": "assistant", "message": {"model": "<synthetic>", "usage": {}}}])
+            now = cm.parse_ts("2026-11-18T00:30:00Z")
+            snap = cm.snapshot_from_transcript(p, now)
+            self.assertEqual(snap["ctx"], 300023)
+            self.assertEqual(snap["max"], 1000000)
+            self.assertEqual(snap["pct"], 30)
+            self.assertEqual(snap["model"], "Opus 5.5")
+            self.assertEqual(snap["eff"], "medium")
+            self.assertEqual(snap["proj"], "TamaPoke")
+            self.assertEqual(snap["dur"], 1800)
+
+    def test_window_sizes(self):
+        self.assertEqual(cm.context_window_for("claude-haiku-4-5"), 200000)
+        self.assertEqual(cm.context_window_for("claude-sonnet-4-20250514"), 200000)
+        self.assertEqual(cm.context_window_for("claude-sonnet-4-6"), 1000000)
+        self.assertEqual(cm.context_window_for("claude-fable-5-2"), 1000000)
+        self.assertEqual(cm.model_display("claude-sonnet-4-20250514"), "Sonnet 4")
+
+    def test_a_fresh_status_line_wins_over_the_transcript(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"TAMAPOKE_CLAUDE_DIR": tmp}):
+            p = self.write(tmp, [self.reply("claude-opus-5-5", 4, 1000)])
+            now = time.time()
+            cm.write_json(cm.sessions_dir() / "s1.status.json", {"at": now - 5, "snap": {"ctx": 7, "h5": 20}})
+            cm.update_from_transcript({"session_id": "s1", "transcript_path": str(p)}, now)
+            self.assertEqual(cm.read_json(cm.sessions_dir() / "s1.status.json")["snap"]["ctx"], 7)
+            cm.update_from_transcript({"session_id": "s2", "transcript_path": str(p)}, now)
+            s2 = cm.read_json(cm.sessions_dir() / "s2.status.json")
+            self.assertEqual((s2["source"], s2["snap"]["ctx"]), ("transcript", 1004))
+
+
+class TestBoardNotes(unittest.TestCase):
+    def test_only_dashboard_exits_are_kept_across_chunks(self):
+        notes, rest = cm.board_notes(b"", b"cargado /mons/p025.bin\nCLAUDE closed: swipe up (touch")
+        self.assertEqual(notes, [])
+        notes, rest = cm.board_notes(rest, b" at 1,2 moved 3,-90 in 200 ms)\r\nCLAUDE ok")
+        self.assertEqual(notes, ["CLAUDE closed: swipe up (touch at 1,2 moved 3,-90 in 200 ms)"])
+        self.assertEqual(rest, b"CLAUDE ok")
 
 
 class TestSingleBridge(unittest.TestCase):

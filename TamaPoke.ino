@@ -225,9 +225,10 @@ bool claudeOpen = false;
 uint8_t claudePage = 0;
 uint32_t claudeLastKey = 0;
 bool claudeKeyValid = false;  // false = redraw on the next frame
-#define CLAUDE_RETURN_MS 60000UL  // a minute untouched on the pet screen: back to the dashboard
+#define CLAUDE_RETURN_MS 20000UL  // 20 s untouched on the pet screen: back to the dashboard
 #define CLAUDE_CLOSE_S 120        // PC silent this long: the dashboard closes, the pet comes back
 bool claudeCanOpen();
+void claudeClose(const char *why);
 void openClaude(uint8_t page);
 void claudeSerial(const String &line);
 void claudeTick(uint32_t now);
@@ -1154,7 +1155,7 @@ void openClock();  // prototipo
 void onSwipeV(int dir) {
   if (pet.awaitingStarter()) return;  // bloqueado durante la eleccion de inicial
   if (claudeOpen) {                   // dashboard: up or down goes to the pet
-    claudeOpen = false;
+    claudeClose(dir > 0 ? "swipe down" : "swipe up");
     return;
   }
   if (gameOpen || galleryOpen || kbOpen || sackOpen || pet.ceremony) return;
@@ -1176,7 +1177,7 @@ void onSwipe(int dir) {
   if (pet.awaitingStarter()) return;  // bloqueado durante la eleccion de inicial
   if (claudeOpen) {  // dashboard: left = next page; past the last page is the pet
     if (dir < 0) {
-      if (claudePage + 1 >= CLAUDE_PAGES) claudeOpen = false;
+      if (claudePage + 1 >= CLAUDE_PAGES) claudeClose("swipe left past the last page");
       else claudePage++;
     } else if (claudePage > 0) {
       claudePage--;
@@ -1237,7 +1238,7 @@ void onTap(int16_t x, int16_t y) {
   }
   if (claudeOpen) {  // tap = next page (the waiting screen goes back to the pet)
     if (claude.alive(millis())) claudePage = (claudePage + 1) % CLAUDE_PAGES;
-    else claudeOpen = false;
+    else claudeClose("tap while the PC link is down");
     return;
   }
   if (galleryOpen) {
@@ -1733,6 +1734,16 @@ void openClaude(uint8_t page) {
   claudeKeyValid = false;
 }
 
+// Leaves the dashboard and says why on the serial port, with the touch that did
+// it (start point, movement, duration): the bridge logs these lines, which tells
+// a deliberate swipe from a phantom one.
+void claudeClose(const char *why) {
+  if (!claudeOpen) return;
+  claudeOpen = false;
+  Serial.printf("CLAUDE closed: %s (touch at %d,%d moved %d,%d in %lu ms)\n", why, tX0, tY0, tXl - tX0, tYl - tY0,
+                (unsigned long)(millis() - tStart));
+}
+
 // one line under the session stats when the pet needs something (ASCII species
 // names: the dashboard fonts have no CJK glyphs)
 static const char *claudePetMsg() {
@@ -1778,7 +1789,7 @@ void claudeSerial(const String &line) {
 void claudeTick(uint32_t now) {
   if (claudeOpen) {
     // PC unplugged or bridge stopped: after a while the board is a TamaPoke again
-    if (!claude.alive(now) && claude.sinceRxS(now) >= CLAUDE_CLOSE_S) claudeOpen = false;
+    if (!claude.alive(now) && claude.sinceRxS(now) >= CLAUDE_CLOSE_S) claudeClose("PC silent");
     return;
   }
   if (claude.alive(now) && claudeCanOpen() && idleSince(now, lastInteract) > CLAUDE_RETURN_MS) openClaude(0);

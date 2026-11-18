@@ -53,6 +53,8 @@ SEND_EVERY_S = 2.0       # the board drops the link after 15 s without a line
 REFRESH_S = 15           # statusLine.refreshInterval set by `install`
 STALE_S = 600            # a session not heard from for this long is gone (SessionEnd missed)
 WORKING_STALE_S = 300    # "working" with nothing moving for this long: Esc'd turn, treat as idle
+ERROR_STALE_S = 90       # an API error is news for this long; then that session reads as idle, so a
+                         # session you are not looking at doesn't keep the board on ERROR
 LIMITS_KEEP_S = 6 * 3600  # plan limits stay on screen this long after the last session closed
 MARKER = "claude_monitor.py"  # how install/uninstall recognise their own entries
 
@@ -266,6 +268,107 @@ def snapshot_from_statusline(data):
     return snap
 
 
+# --- the same numbers from the session transcript ------------------------------
+# The Claude desktop app runs hooks but not the status line, so its sessions have
+# no snapshot. Every hook gets the session's transcript path, and each reply in it
+# records its token usage, model and effort: enough for the context window, the
+# model and the session time (not plan limits or cost, which only the status line has).
+
+STATUSLINE_FRESH_S = 120  # a status line snapshot this recent wins over the transcript
+TRANSCRIPT_TAIL = 512 * 1024
+
+
+def context_window_for(model_id):
+    """Every current model has a 1M window; Haiku 4.5 and older models 200K."""
+    m = str(model_id or "")
+    if m.startswith("claude-3") or re.match(r"claude-(haiku|sonnet|opus)-4-([0-5](?!\d)|\d{8})", m):
+        return 200000
+    return 1000000
+
+
+def model_display(model_id):
+    """claude-opus-5-5 -> Opus 5.5, claude-sonnet-4-20250514 -> Sonnet 4."""
+    m = re.match(r"claude-([a-z]+)-(\d+)(?:-(\d)(?!\d))?", str(model_id or ""))
+    if not m:
+        return str(model_id or "")
+    return m.group(1).capitalize() + " " + m.group(2) + ("." + m.group(3) if m.group(3) else "")
+
+
+def parse_ts(ts):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def snapshot_from_transcript(path, now=None):
+    """Snapshot (same keys as snapshot_from_statusline) from a transcript, or None."""
+    now = time.time() if now is None else now
+    p = Path(path)
+    size = p.stat().st_size
+    with open(p, "rb") as f:
+        head = f.read(8192)
+        f.seek(max(0, size - TRANSCRIPT_TAIL))
+        tail = f.read()
+    start = None
+    for ln in head.split(b"\n"):
+        try:
+            ts = json.loads(ln).get("timestamp")
+        except (ValueError, AttributeError):
+            continue
+        if ts:
+            start = parse_ts(ts)
+            break
+    for ln in reversed(tail.split(b"\n")):
+        if b'"usage"' not in ln:
+            continue
+        try:
+            d = json.loads(ln)
+        except ValueError:
+            continue  # the cut first line of the tail
+        msg = d.get("message") if isinstance(d, dict) else None
+        if d.get("type") != "assistant" or d.get("isSidechain") or not isinstance(msg, dict):
+            continue
+        model, u = str(msg.get("model") or ""), msg.get("usage")
+        if not isinstance(u, dict) or model.startswith("<"):  # <synthetic>: an error, no real usage
+            continue
+        used = sum(num(u.get(k)) or 0 for k in ("input_tokens", "cache_creation_input_tokens",
+                                                "cache_read_input_tokens"))
+        size_ = context_window_for(model)
+        if used > size_:
+            size_ = 1000000
+        snap = {"max": size_, "ctx": int(used), "pct": max(0, min(100, int(round(used * 100 / size_)))),
+                "model": model_display(model), "eff": str(d.get("effort") or "")}
+        cwd = str(d.get("cwd") or "").rstrip("/\\")
+        if cwd:
+            snap["proj"] = re.split(r"[\\/]", cwd)[-1]
+        if start:
+            snap["dur"] = max(0, int(now - start))
+        return snap
+    return None
+
+
+def update_from_transcript(data, now=None):
+    """Called from hooks: fills the session's snapshot from its transcript unless
+    a status line (which also knows plan limits and cost) reported recently."""
+    now = time.time() if now is None else now
+    tp = data.get("transcript_path")
+    if not tp:
+        return
+    path = sessions_dir() / f"{safe_name(data.get('session_id'))}.status.json"
+    prev = read_json(path) or {}
+    if prev.get("source") != "transcript" and now - prev.get("at", 0) < STATUSLINE_FRESH_S:
+        return
+    snap = snapshot_from_transcript(tp, now)
+    if not snap:
+        return
+    psnap = prev.get("snap") or {}
+    moved = psnap.get("ctx") != snap.get("ctx")
+    write_json(path, {"session_id": data.get("session_id"), "at": now, "source": "transcript",
+                      "changed_at": now if (prev and moved) else prev.get("changed_at", 0), "snap": snap})
+
+
 def status_for_hook(data):
     """Board status a hook event puts the session in, or None to leave it as is."""
     ev = data.get("hook_event_name")
@@ -307,6 +410,8 @@ def session_status(sess, now):
         s = hook.get("status", "idle")
         if s == "working" and now - max(hook.get("at", 0), changed_at) > WORKING_STALE_S:
             s = "idle"  # Stop doesn't fire when you press Esc
+        elif s == "error" and now - hook.get("at", 0) > ERROR_STALE_S:
+            s = "idle"
         return s
     # hooks not installed: Claude is working while the numbers move
     return "working" if now - changed_at < 20 else "idle"
@@ -474,6 +579,10 @@ def cmd_hook(args):
         if status:
             write_json(sessions_dir() / f"{sid}.hook.json",
                        {"status": status, "at": time.time(), "event": data.get("hook_event_name")})
+        try:
+            update_from_transcript(data)
+        except Exception:
+            pass
     except Exception:
         pass  # a hook must never get in Claude's way
     return 0
@@ -704,8 +813,17 @@ def cmd_serve(args):
         release_lock(lock)
 
 
+def board_notes(buf, chunk):
+    """Splits the board's output into lines; returns (lines worth logging, leftover).
+    The firmware says when and why it left the dashboard ("CLAUDE closed: ...")."""
+    buf += chunk
+    *lines, rest = buf.split(b"\n")
+    notes = [ln.decode("ascii", "replace").strip() for ln in lines if ln.startswith(b"CLAUDE closed")]
+    return notes, rest[-512:]
+
+
 def serve_loop(serial, args):
-    last_desc, ser, warned = None, None, False
+    last_desc, ser, warned, board_buf = None, None, False, b""
     print("TamaPoke Claude monitor: Ctrl+C to stop", flush=True)
     try:
         while True:
@@ -731,6 +849,10 @@ def serve_loop(serial, args):
                 junk = ser.read(4096)  # the board's own log lines: read so its buffer never fills
                 if args.verbose and junk:
                     sys.stdout.write(junk.decode("ascii", "replace"))
+                elif junk:
+                    notes, board_buf = board_notes(board_buf, junk)
+                    for note in notes:
+                        print(time.strftime("[%H:%M:%S] board: ") + note, flush=True)
             except Exception as e:
                 print(f"lost the board ({e.__class__.__name__}); reconnecting")
                 try:

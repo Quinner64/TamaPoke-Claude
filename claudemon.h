@@ -72,10 +72,17 @@ struct ClaudeMon {
   ClaudeMon() { d.clear(); }
   // payload = the line after "CLAUDE ". Returns what changed.
   ClaudeEvent feed(const char *payload, uint32_t nowMs);
-  bool alive(uint32_t nowMs) const { return ever && (uint32_t)(nowMs - rxMs) < CLAUDE_LINK_MS; }
+  // ms since the last line. A `nowMs` read before the line arrived (the loop takes
+  // millis() once at the top, the line is stamped later in the same pass) counts
+  // as 0, not as a 49-day wrap that would declare the link dead.
+  uint32_t sinceRxMs(uint32_t nowMs) const {
+    int32_t d = (int32_t)(nowMs - rxMs);
+    return d < 0 ? 0 : (uint32_t)d;
+  }
+  bool alive(uint32_t nowMs) const { return ever && sinceRxMs(nowMs) < CLAUDE_LINK_MS; }
   // seconds left of a countdown received as `s`; -1 stays -1, never below 0
   int32_t left(int32_t s, uint32_t nowMs) const;
-  uint32_t sinceRxS(uint32_t nowMs) const { return (uint32_t)(nowMs - rxMs) / 1000; }
+  uint32_t sinceRxS(uint32_t nowMs) const { return sinceRxMs(nowMs) / 1000; }
 };
 
 // Parses one payload into `out` (cleared first). False if it is not protocol v1.

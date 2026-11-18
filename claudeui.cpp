@@ -259,7 +259,8 @@ static void pageGlance(const Ctx &c, const ClaudeFrame &f, const ClaudeScene &sc
     txt(g, "Zz", cx + 34, top, 3, CD_DIM);
   }
 
-  // the 5-hour limit is what runs out first; without plan limits, the session cost
+  // the 5-hour limit is what runs out first; without plan limits, the session cost;
+  // without that either (the desktop app reports neither), the session time
   char line[24];
   uint16_t col = CD_TEXT;
   if (f.h5Pct >= 0) {
@@ -268,8 +269,10 @@ static void pageGlance(const Ctx &c, const ClaudeFrame &f, const ClaudeScene &sc
   } else if (f.spPct >= 0) {
     snprintf(line, sizeof(line), "SPEND %d%%", f.spPct);
     col = limitText(f.spPct);
-  } else {
+  } else if (strcmp(f.cost, "--") != 0) {
     snprintf(line, sizeof(line), "%s", f.cost);
+  } else {
+    snprintf(line, sizeof(line), "%s", f.dur);
   }
   txtC(g, line, cx, c.Y(332), fitSize(line, 250, 4, 3), col);
   pageDots(c, 0);
@@ -318,8 +321,11 @@ static void pageSession(const Ctx &c, const ClaudeFrame &f, int cx0, int cy0, bo
   Arduino_GFX *g = c.g;
   cardBase(c, f, cx0, cy0, roundPanel);
   int cx = c.X(233);
-  txtC(g, "COST", cx, c.Y(90), 2, CD_DIM);
-  txtC(g, f.cost, cx, c.Y(110), fitSize(f.cost, 300, 8, 4), CD_TEXT);
+  // no cost reported (the desktop app): the tokens in the window instead
+  bool cost = strcmp(f.cost, "--") != 0;
+  const char *top = cost ? f.cost : f.ctxUsed;
+  txtC(g, cost ? "COST" : "TOKENS", cx, c.Y(90), 2, CD_DIM);
+  txtC(g, top, cx, c.Y(110), fitSize(top, 300, 8, 4), CD_TEXT);
   txtC(g, "TIME", cx, c.Y(184), 2, CD_DIM);
   txtC(g, f.dur, cx, c.Y(204), fitSize(f.dur, 300, 6, 3), CD_TEXT);
 
