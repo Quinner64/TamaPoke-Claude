@@ -308,10 +308,29 @@ static void pageLimits(const Ctx &c, const ClaudeFrame &f, int cx0, int cy0, boo
     limitBlock(c, 230, "WEEK", f.w7Pct, f.w7Reset);
   } else if (f.spPct >= 0) {
     limitBlock(c, 150, "SPEND", f.spPct, f.spend);
-  } else {  // API key: no plan limits, so the money is what counts
+  } else if (strcmp(f.cost, "--") != 0) {  // API key: no plan limits, so the money is what counts
     txtC(g, "SESSION COST", c.X(233), c.Y(140), 3, CD_DIM);
     txtC(g, f.cost, c.X(233), c.Y(178), fitSize(f.cost, 300, 9, 5), CD_TEXT);
     txtC(g, "no plan limits (API key)", c.X(233), c.Y(270), 2, CD_DIM);
+  } else {
+    // neither limits nor cost: the Claude desktop app reports no status line, only
+    // what the transcript has. Show this session's context window in detail instead.
+    char v[8];
+    if (f.ctxPct >= 0) snprintf(v, sizeof(v), "%d%%", f.ctxPct);
+    else snprintf(v, sizeof(v), "--");
+    txt(g, "CTX", c.X(92), c.Y(114), 4, CD_DIM);
+    txt(g, v, c.X(378) - (tw(v, 8) - 8), c.Y(90), 8, CD_TEXT);
+    bar(g, c.X(92), c.Y(156), 286, 22, f.ctxPct, ctxColor(f.ctxPct));
+    txtC(g, f.ctxUsed, c.X(235), c.Y(188), fitSize(f.ctxUsed, 286, 3, 2), CD_DIM);
+    if (f.ctxLeft[0]) {
+      txtC(g, "LEFT", c.X(233), c.Y(232), 2, CD_DIM);
+      char left[20];
+      snprintf(left, sizeof(left), "%s", f.ctxLeft);
+      char *sp = strchr(left, ' ');  // "619k left" -> "619k"
+      if (sp) *sp = 0;
+      txtC(g, left, c.X(233), c.Y(252), fitSize(left, 300, 7, 4), ctxColor(f.ctxPct));
+    }
+    txtC(g, "plan limits: terminal only", c.X(233), c.Y(328), 2, CD_DIM);
   }
   pageDots(c, 1);
 }
